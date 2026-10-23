@@ -16,6 +16,7 @@ import logging
 import json
 import asyncio
 import ssl
+import sys
 import threading
 import time
 from .models import *
@@ -93,6 +94,16 @@ class WebSocketClient:
         # friends change on the caller's thread while connect() reads them on
         # the event loop's thread
         self._subs_lock = threading.Lock()
+        # wake-up of connect() when subscriptions change: the loop it runs
+        # on, whether a wake-up is queued there, whether one arrived since the
+        # last reconciliation, and how to interrupt the recv() in progress
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._wake_pending = False
+        self._woken = False
+        self._recv_timeout: Optional[Any] = None  # asyncio.Timeout
+        self._recv_woken: Optional["asyncio.Future[None]"] = None  # Python 3.10
+        # how long connect() waits for a message before doing housekeeping
+        self._recv_interval = 1.0
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -118,6 +129,28 @@ class WebSocketClient:
         :param close_timeout: How long to wait for handshake when calling .close.
         :raises AuthError: If invalid API key is supplied.
         """
+        self._woken = False
+        with self._subs_lock:
+            self._wake_pending = False
+        self._loop = asyncio.get_running_loop()
+        try:
+            await self._connect(processor, close_timeout, **kwargs)
+        finally:
+            # subscription changes made from now on must not wake this loop
+            self._loop = None
+            with self._subs_lock:
+                self._wake_pending = False
+            self._woken = False
+
+    async def _connect(
+        self,
+        processor: Union[
+            Callable[[List[WebSocketMessage]], Awaitable],
+            Callable[[Union[str, bytes]], Awaitable],
+        ],
+        close_timeout: int,
+        **kwargs,
+    ):
         reconnects = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
@@ -150,11 +183,10 @@ class WebSocketClient:
                 while True:
                     await self._reconcile()
 
-                    try:
-                        cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
-                            await asyncio.wait_for(s.recv(), timeout=1)
-                        )
-                    except asyncio.TimeoutError:
+                    cmsg: Optional[Union[List[WebSocketMessage], Union[str, bytes]]] = (
+                        await self._recv(s, timeout=self._recv_interval)
+                    )
+                    if cmsg is None:
                         self._flush_server_errors()
                         continue
 
@@ -266,6 +298,79 @@ class WebSocketClient:
             self.json.dumps({"action": "unsubscribe", "params": subs})
         )
 
+    async def _recv(
+        self, s: ClientConnection, timeout: float
+    ) -> Optional[Union[str, bytes]]:
+        """
+        Receive the next message, or return None after ``timeout`` seconds or
+        as soon as subscriptions change, whichever comes first.
+
+        recv() is cancellation-safe: a message it has not returned yet is
+        returned by the next call, so interrupting it loses nothing.
+        """
+        if self._woken:
+            return None
+        if sys.version_info >= (3, 11):
+            # _wake_up() moves the deadline to now; no extra task per message
+            try:
+                async with asyncio.timeout(timeout) as self._recv_timeout:
+                    return await s.recv()
+            except TimeoutError:
+                return None
+            finally:
+                self._recv_timeout = None
+        woken: "asyncio.Future[None]" = asyncio.get_running_loop().create_future()
+        self._recv_woken = woken
+        recv = asyncio.ensure_future(s.recv())
+        # asyncio.wait() takes futures of one type
+        waiters: Set["asyncio.Future[Any]"] = {recv, woken}
+        try:
+            await asyncio.wait(
+                waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            self._recv_woken = None
+            if not recv.done():
+                recv.cancel()
+                # recv() must not be called again until this one has finished
+                await asyncio.wait({recv})
+        if recv.cancelled():
+            return None
+        return recv.result()
+
+    def _notify(self):
+        """
+        Wake ``connect()`` so it applies scheduled changes now rather than
+        after its ``recv`` timeout. Safe to call from any thread.
+        """
+        loop = self._loop
+        if loop is None:
+            return
+        with self._subs_lock:
+            # one queued wake-up covers every change made before it runs
+            if self._wake_pending:
+                return
+            self._wake_pending = True
+        try:
+            loop.call_soon_threadsafe(self._wake_up)
+        except RuntimeError:
+            # the loop is closed: connect() is no longer running
+            with self._subs_lock:
+                self._wake_pending = False
+
+    def _wake_up(self):
+        # runs on the loop, before it reads the changes it is woken for
+        with self._subs_lock:
+            self._wake_pending = False
+        self._woken = True
+        timeout = self._recv_timeout
+        # an expiring timeout has already cancelled recv(), and rescheduling
+        # it would raise
+        if timeout is not None and not timeout.expired():
+            timeout.reschedule(asyncio.get_running_loop().time())
+        if self._recv_woken is not None and not self._recv_woken.done():
+            self._recv_woken.set_result(None)
+
     async def _reconcile(self):
         """
         Send the frames that move the server from ``subs`` to ``scheduled_subs``.
@@ -275,6 +380,8 @@ class WebSocketClient:
         other threads; anything they schedule meanwhile is applied on the next
         call.
         """
+        # clear before reading, so a change made after the copy wakes the loop
+        self._woken = False
         with self._subs_lock:
             if not self.schedule_resub:
                 return
@@ -337,6 +444,7 @@ class WebSocketClient:
                             self.scheduled_subs.discard(t)
 
             self.schedule_resub = True
+        self._notify()
         for s, _, _ in parsed:
             logger.debug("sub desired: %s", s)
 
@@ -360,6 +468,7 @@ class WebSocketClient:
                             self.scheduled_subs.discard(t)
 
             self.schedule_resub = True
+        self._notify()
         for s, _, _ in parsed:
             logger.debug("sub undesired: %s", s)
 
@@ -372,6 +481,7 @@ class WebSocketClient:
         with self._subs_lock:
             self.scheduled_subs = set()
             self.schedule_resub = True
+        self._notify()
 
     async def close(self):
         """
