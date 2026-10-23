@@ -31,7 +31,7 @@ class LastTrade:
 
     ticker: Optional[str] = None
     trf_timestamp: Optional[int] = None
-    sequence_number: Optional[float] = None
+    sequence_number: Optional[int] = None
     sip_timestamp: Optional[int] = None
     participant_timestamp: Optional[int] = None
     conditions: Optional[List[int]] = None
