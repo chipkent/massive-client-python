@@ -3,6 +3,7 @@ from massive.websocket import logger
 from base_ws import BaseTest
 from mock_server import port
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosedOK
 import asyncio
 
 
@@ -65,11 +66,15 @@ class StatusTest(BaseTest):
         self.assertEqual(logs.output, ["WARNING:WebSocketClient:sentinel"])
 
     async def test_disconnect_reason_is_logged(self):
-        # the server sends a status and then closes the connection normally
+        # the server sends a status and then closes the connection normally;
+        # the client would reconnect, so let it give up instead
         with self.assertLogs("WebSocketClient", level="WARNING") as logs:
-            c = WebSocketClient(api_key="", feed=f"localhost:{port}", secure=False)
+            c = WebSocketClient(
+                api_key="", feed=f"localhost:{port}", secure=False, max_reconnects=0
+            )
             c.subscribe("SLOW.X")
-            await asyncio.wait_for(c.connect(lambda msgs: asyncio.sleep(0)), 5)
+            with self.assertRaises(ConnectionClosedOK):
+                await asyncio.wait_for(c.connect(lambda msgs: asyncio.sleep(0)), 5)
         self.assertEqual(
             logs.output,
             [
