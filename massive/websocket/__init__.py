@@ -1,11 +1,22 @@
 import os
 from collections import Counter
 from enum import Enum
-from typing import Optional, Union, List, Set, Callable, Awaitable, Any
+from typing import (
+    Optional,
+    Union,
+    List,
+    Set,
+    Callable,
+    Awaitable,
+    Any,
+    Iterable,
+    Tuple,
+)
 import logging
 import json
 import asyncio
 import ssl
+import threading
 import time
 from .models import *
 from websockets.asyncio.client import connect, ClientConnection
@@ -78,6 +89,10 @@ class WebSocketClient:
             subscriptions = []
         self.scheduled_subs: Set[str] = set(subscriptions)
         self.schedule_resub = True
+        # guards scheduled_subs and schedule_resub, which subscribe() and
+        # friends change on the caller's thread while connect() reads them on
+        # the event loop's thread
+        self._subs_lock = threading.Lock()
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -133,17 +148,7 @@ class WebSocketClient:
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
                 while True:
-                    if self.schedule_resub:
-                        logger.debug(
-                            "reconciling: %s %s", self.subs, self.scheduled_subs
-                        )
-                        new_subs = self.scheduled_subs.difference(self.subs)
-                        await self._subscribe(new_subs)
-                        old_subs = self.subs.difference(self.scheduled_subs)
-                        await self._unsubscribe(old_subs)
-                        self.subs = self.scheduled_subs
-                        self.subs = set(self.scheduled_subs)
-                        self.schedule_resub = False
+                    await self._reconcile()
 
                     try:
                         cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
@@ -175,9 +180,10 @@ class WebSocketClient:
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
                 reconnects += 1
-                self.scheduled_subs = set(self.subs)
-                self.subs = set()
-                self.schedule_resub = True
+                with self._subs_lock:
+                    self.scheduled_subs = set(self.subs)
+                    self.subs = set()
+                    self.schedule_resub = True
                 if self.max_reconnects is not None and reconnects > self.max_reconnects:
                     break
                 continue
@@ -260,6 +266,33 @@ class WebSocketClient:
             self.json.dumps({"action": "unsubscribe", "params": subs})
         )
 
+    async def _reconcile(self):
+        """
+        Send the frames that move the server from ``subs`` to ``scheduled_subs``.
+
+        Runs on the event loop's thread. The scheduled set is copied under the
+        lock, so ``subscribe()`` and ``unsubscribe()`` may run concurrently on
+        other threads; anything they schedule meanwhile is applied on the next
+        call.
+        """
+        with self._subs_lock:
+            if not self.schedule_resub:
+                return
+            desired = set(self.scheduled_subs)
+            self.schedule_resub = False
+        logger.debug("reconciling: %s %s", self.subs, desired)
+        try:
+            # unsubscribe first, so a client at the server's subscription limit
+            # can swap topics
+            await self._unsubscribe(self.subs.difference(desired))
+            await self._subscribe(desired.difference(self.subs))
+        except BaseException:
+            # e.g. the connection closed: try again on the next connection
+            with self._subs_lock:
+                self.schedule_resub = True
+            raise
+        self.subs = desired
+
     @staticmethod
     def _parse_subscription(s: str):
         s = s.strip()
@@ -270,53 +303,75 @@ class WebSocketClient:
 
         return split
 
+    def _parse_subscriptions(
+        self, subscriptions: Iterable[str]
+    ) -> List[Tuple[str, str, str]]:
+        """
+        Return ``(subscription, channel, symbol)`` for each well-formed
+        subscription, skipping (and logging) the rest. Parsing happens before
+        taking the lock, so nothing is logged while it is held.
+        """
+        parsed = []
+        for s in subscriptions:
+            topic, sym = self._parse_subscription(s)
+            if topic is not None:
+                parsed.append((s, topic, sym))
+        return parsed
+
     def subscribe(self, *subscriptions: str):
         """
         Subscribe to given subscriptions.
 
+        Safe to call from any thread, before or while ``connect()`` runs.
+
         :param subscriptions: Subscriptions (args)
         """
-        for s in subscriptions:
-            topic, sym = self._parse_subscription(s)
-            if topic == None:
-                continue
-            logger.debug("sub desired: %s", s)
-            self.scheduled_subs.add(s)
-            # If user subs to X.*, remove other X.\w+
-            if sym == "*":
-                for t in list(self.subs):
-                    if t.startswith(topic):
-                        self.scheduled_subs.discard(t)
+        parsed = self._parse_subscriptions(subscriptions)
+        with self._subs_lock:
+            for s, topic, sym in parsed:
+                self.scheduled_subs.add(s)
+                # If user subs to X.*, remove other X.\w+
+                if sym == "*":
+                    for t in list(self.subs):
+                        if t.startswith(topic):
+                            self.scheduled_subs.discard(t)
 
-        self.schedule_resub = True
+            self.schedule_resub = True
+        for s, _, _ in parsed:
+            logger.debug("sub desired: %s", s)
 
     def unsubscribe(self, *subscriptions: str):
         """
         Unsubscribe from given subscriptions.
 
+        Safe to call from any thread, before or while ``connect()`` runs.
+
         :param subscriptions: Subscriptions (args)
         """
-        for s in subscriptions:
-            topic, sym = self._parse_subscription(s)
-            if topic == None:
-                continue
+        parsed = self._parse_subscriptions(subscriptions)
+        with self._subs_lock:
+            for s, topic, sym in parsed:
+                self.scheduled_subs.discard(s)
+
+                # If user unsubs to X.*, remove other X.\w+
+                if sym == "*":
+                    for t in list(self.subs):
+                        if t.startswith(topic):
+                            self.scheduled_subs.discard(t)
+
+            self.schedule_resub = True
+        for s, _, _ in parsed:
             logger.debug("sub undesired: %s", s)
-            self.scheduled_subs.discard(s)
-
-            # If user unsubs to X.*, remove other X.\w+
-            if sym == "*":
-                for t in list(self.subs):
-                    if t.startswith(topic):
-                        self.scheduled_subs.discard(t)
-
-        self.schedule_resub = True
 
     def unsubscribe_all(self):
         """
         Unsubscribe from all subscriptions.
+
+        Safe to call from any thread, before or while ``connect()`` runs.
         """
-        self.scheduled_subs = set()
-        self.schedule_resub = True
+        with self._subs_lock:
+            self.scheduled_subs = set()
+            self.schedule_resub = True
 
     async def close(self):
         """
