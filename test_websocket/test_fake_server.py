@@ -66,7 +66,7 @@ class FakeServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.server.inbox, [{"action": "auth", "params": "bad"}])
 
     async def test_resubscribes_after_reconnect(self) -> None:
-        c = self.client(subscriptions=["T.AAPL", "Q.AAPL"])
+        c = self.client(subscriptions=["T.AAPL", "Q.AAPL"], reconnect_backoff=0.01)
         task = asyncio.create_task(c.connect(lambda msgs: asyncio.sleep(0)))
         await self.server.wait_for_subscriptions({"T.AAPL", "Q.AAPL"})
 
