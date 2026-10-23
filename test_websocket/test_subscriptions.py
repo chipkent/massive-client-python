@@ -200,5 +200,50 @@ class WakeUpTest(SubscriptionsTest):
         await asyncio.wait_for(task, 5)
 
 
+class WildcardTest(SubscriptionsTest):
+    async def test_wildcard_subscribe_keeps_other_channels(self) -> None:
+        # the collapse (on by default) matches the channel exactly
+        c = self.client()
+        await self.start(c)
+        c.subscribe("A.X")
+        await self.server.wait_for_subscriptions({"A.X"})
+        c.subscribe("AM.*")
+        await self.server.wait_for_subscriptions({"A.X", "AM.*"})
+        self.assertEqual(c.scheduled_subs, {"A.X", "AM.*"})
+
+    async def test_wildcard_subscribe_without_collapse(self) -> None:
+        c = self.client(subscriptions=["T.AAPL", "TX.AAPL"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL", "TX.AAPL"})
+        c.subscribe("T.*", collapse=False)
+        await self.server.wait_for_subscriptions({"T.AAPL", "TX.AAPL", "T.*"})
+
+    async def test_wildcard_unsubscribe_without_collapse(self) -> None:
+        c = self.client(subscriptions=["T.AAPL", "T.*", "TX.*"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.*", "TX.*"})
+        c.unsubscribe("T.*", collapse=False)
+        await self.server.wait_for_subscriptions({"T.AAPL", "TX.*"})
+        self.assertEqual(c.scheduled_subs, {"T.AAPL", "TX.*"})
+
+    async def test_collapse_on_subscribe(self) -> None:
+        # by default; pending topics collapse too, not only subscribed ones
+        c = self.client(subscriptions=["T.AAPL", "TX.AAPL", "A.X"])
+        c.subscribe("T.MSFT")
+        c.subscribe("T.*")
+        self.assertEqual(c.scheduled_subs, {"T.*", "TX.AAPL", "A.X"})
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.*", "TX.AAPL", "A.X"})
+        c.subscribe("A.*")
+        await self.server.wait_for_subscriptions({"T.*", "TX.AAPL", "A.*"})
+
+    async def test_collapse_on_unsubscribe(self) -> None:
+        c = self.client(subscriptions=["T.AAPL", "T.*", "TX.AAPL", "AM.X"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.*", "TX.AAPL", "AM.X"})
+        c.unsubscribe("T.*", "A.*")  # collapses by default
+        await self.server.wait_for_subscriptions({"TX.AAPL", "AM.X"})
+
+
 if __name__ == "__main__":
     unittest.main()
