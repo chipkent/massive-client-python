@@ -41,9 +41,16 @@ Get daily open close agg
 
 - `Stocks daily open/close agg`_
 - `Options daily open/close agg`_
-- `Crypto daily open/close agg`_
 
 .. automethod:: massive.RESTClient.get_daily_open_close_agg
+
+============================
+Get daily open close crypto
+============================
+
+- `Crypto daily open/close agg`_
+
+.. automethod:: massive.RESTClient.get_daily_open_close_crypto
 
 ============================
 Get previous close agg
