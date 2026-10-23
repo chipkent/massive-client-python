@@ -425,47 +425,59 @@ class WebSocketClient:
                 parsed.append((s, topic, sym))
         return parsed
 
-    def subscribe(self, *subscriptions: str):
+    def _collapse(self, channel: str, keep: Optional[str] = None):
+        """
+        Unschedule every topic on ``channel`` (e.g. ``T``) except ``keep``.
+
+        Matches the channel exactly, so collapsing ``A`` leaves ``AM.AAPL``,
+        and covers topics that are scheduled but not yet subscribed. Call with
+        the lock held.
+        """
+        for t in list(self.scheduled_subs):
+            if t != keep and t.split(".", 1)[0].strip() == channel:
+                self.scheduled_subs.discard(t)
+
+    def subscribe(self, *subscriptions: str, collapse: bool = True):
         """
         Subscribe to given subscriptions.
 
         Safe to call from any thread, before or while ``connect()`` runs.
 
         :param subscriptions: Subscriptions (args)
+        :param collapse: If true (the default), subscribing to a wildcard such
+            as ``T.*`` also unsubscribes the other topics on that channel
+            (``T.AAPL``, but not ``TX.AAPL``). If false, they stay subscribed.
         """
         parsed = self._parse_subscriptions(subscriptions)
         with self._subs_lock:
             for s, topic, sym in parsed:
                 self.scheduled_subs.add(s)
-                # If user subs to X.*, remove other X.\w+
-                if sym == "*":
-                    for t in list(self.subs):
-                        if t.startswith(topic):
-                            self.scheduled_subs.discard(t)
+                if collapse and sym == "*":
+                    self._collapse(topic, keep=s)
 
             self.schedule_resub = True
         self._notify()
         for s, _, _ in parsed:
             logger.debug("sub desired: %s", s)
 
-    def unsubscribe(self, *subscriptions: str):
+    def unsubscribe(self, *subscriptions: str, collapse: bool = True):
         """
         Unsubscribe from given subscriptions.
 
         Safe to call from any thread, before or while ``connect()`` runs.
 
         :param subscriptions: Subscriptions (args)
+        :param collapse: If true (the default), unsubscribing from a wildcard
+            such as ``T.*`` also unsubscribes every other topic on that channel
+            (``T.AAPL``, but not ``TX.AAPL``). If false, only the wildcard is
+            removed.
         """
         parsed = self._parse_subscriptions(subscriptions)
         with self._subs_lock:
             for s, topic, sym in parsed:
                 self.scheduled_subs.discard(s)
-
-                # If user unsubs to X.*, remove other X.\w+
-                if sym == "*":
-                    for t in list(self.subs):
-                        if t.startswith(topic):
-                            self.scheduled_subs.discard(t)
+                if collapse and sym == "*":
+                    self._collapse(topic)
 
             self.schedule_resub = True
         self._notify()
