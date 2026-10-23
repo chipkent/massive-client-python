@@ -92,7 +92,7 @@ class TickersClient(BaseClient):
         type: Optional[str] = None,
         market: Optional[str] = None,
         exchange: Optional[str] = None,
-        cusip: Optional[int] = None,
+        cusip: Optional[str] = None,
         cik: Optional[int] = None,
         date: Optional[str] = None,
         active: Optional[bool] = None,

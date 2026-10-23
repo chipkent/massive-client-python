@@ -217,11 +217,11 @@ class CryptoQuote:
 
     event_type: Optional[Union[str, EventType]] = None
     pair: Optional[str] = None
-    bid_price: Optional[int] = None
+    bid_price: Optional[float] = None
     bid_size: Optional[float] = None
-    ask_price: Optional[int] = None
-    ask_size: Optional[int] = None
-    timestamp: Optional[float] = None
+    ask_price: Optional[float] = None
+    ask_size: Optional[float] = None
+    timestamp: Optional[int] = None
     exchange_id: Optional[int] = None
     received_timestamp: Optional[int] = None
 
@@ -328,7 +328,7 @@ class IndexValue:
     event_type: Optional[Union[str, EventType]] = None
     value: Optional[float] = None
     ticker: Optional[str] = None
-    timestamp: Optional[str] = None
+    timestamp: Optional[int] = None
 
     @staticmethod
     def from_dict(d):
