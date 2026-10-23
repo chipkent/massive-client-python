@@ -1,4 +1,5 @@
 import asyncio
+import json
 import socket
 import ssl
 import threading
@@ -7,7 +8,7 @@ import unittest
 from typing import Any, List, Optional
 from unittest import mock
 
-from fake_server import FakeServer
+from fake_server import FakeServer, status
 from websockets.asyncio.server import ServerConnection
 from websockets.datastructures import Headers
 from websockets.exceptions import (
@@ -440,6 +441,72 @@ class TransientTest(unittest.TestCase):
             self.assertTrue(WebSocketClient._is_transient(e), repr(e))
         for e in fatal:
             self.assertFalse(WebSocketClient._is_transient(e), repr(e))
+
+
+class MaxConnectionsTest(unittest.IsolatedAsyncioTestCase):
+    """A max_connections status in the reply to auth reaches the caller."""
+
+    async def asyncSetUp(self) -> None:
+        self.server = await FakeServer().start()
+        self.addAsyncCleanup(self.server.stop)
+        self.status = status(
+            "max_connections", "Maximum number of websocket connections exceeded."
+        )
+
+    async def test_raw_processor_receives_it(self) -> None:
+        self.server.script_auth(self.status, close_code=1008)
+        c = WebSocketClient(
+            api_key="key",
+            feed=self.server.feed,
+            secure=False,
+            raw=True,
+            reconnect_backoff=BACKOFF,
+            subscriptions=["T.AAPL"],
+        )
+        frames: List[Any] = []
+
+        async def processor(msg: Any) -> None:
+            frames.append((json.loads(msg), c.max_connections_reached))
+
+        task = asyncio.create_task(c.connect(processor))
+        # it reconnects after the server closes, and the next handshake succeeds
+        await self.server.wait_for_connections(1)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        self.assertEqual(len(self.server.connections), 2)
+        self.assertEqual(frames[0], ([self.status], True))
+        self.assertFalse(c.max_connections_reached)
+
+        c.request_close()
+        await asyncio.wait_for(task, 5)
+
+    async def test_flag_is_set(self) -> None:
+        self.server.script_auth(self.status, close_code=1008)
+        self.server.script_auth(self.status, close_code=1008)
+        c = WebSocketClient(
+            api_key="key",
+            feed=self.server.feed,
+            secure=False,
+            reconnect_backoff=0.2,
+            max_reconnect_backoff=0.2,
+        )
+        delays: List[int] = []
+        delay = c._reconnect_delay
+
+        def record(attempt: int) -> float:
+            delays.append(attempt)
+            return delay(attempt)
+
+        with mock.patch.object(c, "_reconnect_delay", side_effect=record):
+            task = asyncio.create_task(c.connect(ignore))
+            await self.server.wait_for(lambda: c.max_connections_reached)
+            # cleared by the next successful handshake
+            await self.server.wait_for_connections(1)
+            await self.server.wait_for(lambda: not c.max_connections_reached)
+            self.assertEqual(len(self.server.connections), 3)
+            c.request_close()
+            await asyncio.wait_for(task, 5)
+        # a refused handshake is a failed attempt, so the backoff grows
+        self.assertEqual(delays, [0, 1])
 
 
 class ReconnectDelayTest(unittest.TestCase):
