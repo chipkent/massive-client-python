@@ -114,7 +114,9 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.server.connections), 2)
 
     async def test_waits_between_attempts(self) -> None:
-        c = self.client(reconnect_backoff=0.05, max_reconnect_backoff=0.2)
+        c = self.client(
+            reconnect_backoff=0.05, max_reconnect_backoff=0.2, max_reconnects=None
+        )
         delays: List[float] = []
         delay = c._reconnect_delay
 
@@ -208,6 +210,43 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(c.connect(ignore), 5)
         self.assertEqual(self.server.attempts, [])
 
+    async def test_outages_with_successes_between_do_not_raise(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"], max_reconnects=5)
+        task = self.start(c)
+        for i in range(1, 8):
+            await self.server.wait_for_connections(i)
+            await self.server.wait_for_subscriptions({"T.AAPL"})
+            await self.server.drop_connections()
+        await self.server.wait_for_connections(8)
+        self.assertFalse(task.done())
+
+        await c.close()
+        await asyncio.wait_for(task, 5)
+
+    async def test_consecutive_failures_raise(self) -> None:
+        c = self.client(max_reconnects=2)
+        task = self.start(c)
+        await self.server.wait_for_connections(1)
+        self.server.reject_handshakes = True
+        await self.server.drop_connections()
+
+        # the drop and two refused attempts
+        with self.assertRaises(InvalidStatus):
+            await asyncio.wait_for(task, 5)
+        self.assertEqual(len(self.server.attempts), 3)
+
+    async def test_unlimited_reconnects(self) -> None:
+        c = self.client(max_reconnects=None, max_reconnect_backoff=BACKOFF)
+        task = self.start(c)
+        self.server.reject_handshakes = True
+        await self.server.wait_for(lambda: len(self.server.attempts) >= 20)
+        self.assertFalse(task.done())
+        self.server.reject_handshakes = False
+        await self.server.wait_for_connections(1)
+
+        await c.close()
+        await asyncio.wait_for(task, 5)
+
 
 class TransientTest(unittest.TestCase):
     """Which failed attempts to connect are retried."""
@@ -258,6 +297,7 @@ class ReconnectDelayTest(unittest.TestCase):
         c = WebSocketClient(api_key="key")
         self.assertEqual(c.reconnect_backoff, 15.0)
         self.assertEqual(c.max_reconnect_backoff, 120.0)
+        self.assertIsNone(c.max_reconnects)
         with mock.patch("random.uniform", side_effect=lambda a, b: a):
             self.assertEqual(self.delays(c, 6), [15, 30, 60, 120, 120, 120])
         with mock.patch("random.uniform", side_effect=lambda a, b: b):
