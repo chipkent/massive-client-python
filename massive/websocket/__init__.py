@@ -94,6 +94,8 @@ class WebSocketClient:
         # friends change on the caller's thread while connect() reads them on
         # the event loop's thread
         self._subs_lock = threading.Lock()
+        # topics to subscribe to again even if already subscribed
+        self._resend: Set[str] = set()
         # wake-up of connect() when subscriptions change: the loop it runs
         # on, whether a wake-up is queued there, whether one arrived since the
         # last reconciliation, and how to interrupt the recv() in progress
@@ -386,16 +388,21 @@ class WebSocketClient:
             if not self.schedule_resub:
                 return
             desired = set(self.scheduled_subs)
+            resend = self._resend
+            self._resend = set()
             self.schedule_resub = False
         logger.debug("reconciling: %s %s", self.subs, desired)
         try:
             # unsubscribe first, so a client at the server's subscription limit
             # can swap topics
             await self._unsubscribe(self.subs.difference(desired))
-            await self._subscribe(desired.difference(self.subs))
+            await self._subscribe(
+                desired.difference(self.subs) | resend.intersection(desired)
+            )
         except BaseException:
             # e.g. the connection closed: try again on the next connection
             with self._subs_lock:
+                self._resend |= resend
                 self.schedule_resub = True
             raise
         self.subs = desired
@@ -483,6 +490,40 @@ class WebSocketClient:
         self._notify()
         for s, _, _ in parsed:
             logger.debug("sub undesired: %s", s)
+
+    def set_subscriptions(self, desired: Iterable[str], *, resend: Iterable[str] = ()):
+        """
+        Replace the subscriptions with ``desired``, in one step.
+
+        Safe to call from any thread, before or while ``connect()`` runs. The
+        client sends at most one unsubscribe message, for the topics no longer
+        desired, followed by at most one subscribe message, for the new topics
+        plus those in ``resend``. Topics in both the old and the new set are
+        left alone unless they are in ``resend``.
+
+        Use ``resend`` to subscribe again to topics the client already
+        considers subscribed, e.g. ones the server never acknowledged.
+        Wildcards such as ``T.*`` are ordinary topics here: nothing collapses.
+
+        :param desired: Every topic to be subscribed to afterwards, e.g.
+            ``["T.AAPL", "Q.*"]``. Malformed topics are logged and skipped.
+        :param resend: Topics of ``desired`` to send in the subscribe message
+            even if already subscribed. Each call replaces the resends of
+            earlier calls that have not been sent yet.
+        :raises ValueError: If a topic in ``resend`` is not in ``desired``; the
+            subscriptions are then left unchanged.
+        """
+        topics = {s for s, _, _ in self._parse_subscriptions(desired)}
+        again = set(resend)
+        unknown = again.difference(topics)
+        if unknown:
+            raise ValueError(f"resend topics not in desired: {sorted(unknown)}")
+        with self._subs_lock:
+            self.scheduled_subs = topics
+            self._resend = again
+            self.schedule_resub = True
+        self._notify()
+        logger.debug("subs desired: %s (resend %s)", topics, again)
 
     def unsubscribe_all(self):
         """
