@@ -6,10 +6,15 @@ import logging
 import json
 import asyncio
 import ssl
+import threading
 import time
 from .models import *
 from websockets.asyncio.client import connect, ClientConnection
-from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+from websockets.exceptions import (
+    ConnectionClosed,
+    ConnectionClosedOK,
+    ConnectionClosedError,
+)
 from ..certs import ca_bundle_path
 from ..logging import get_logger
 import logging
@@ -85,6 +90,9 @@ class WebSocketClient:
             self.json = custom_json
         else:
             self.json = json
+        # set while connect() runs; close() also stops it from reconnecting
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._close_requested = threading.Event()
 
     # https://websockets.readthedocs.io/en/stable/reference/client.html#opening-a-connection
     async def connect(
@@ -99,10 +107,32 @@ class WebSocketClient:
         """
         Connect to websocket server and run `processor(msg)` on every new `msg`.
 
+        When the connection ends, whether the server closed it cleanly or not,
+        the client reconnects and subscribes again to every scheduled
+        subscription. It returns once `close()` is called.
+
         :param processor: The callback to process messages.
         :param close_timeout: How long to wait for handshake when calling .close.
         :raises AuthError: If invalid API key is supplied.
+        :raises ConnectionClosedError: If more than `max_reconnects` reconnects
+            fail, even if the server closed the last connection cleanly.
         """
+        self._loop = asyncio.get_running_loop()
+        try:
+            await self._connect(processor, close_timeout, **kwargs)
+        finally:
+            self._loop = None
+            self._close_requested.clear()
+
+    async def _connect(
+        self,
+        processor: Union[
+            Callable[[List[WebSocketMessage]], Awaitable],
+            Callable[[Union[str, bytes]], Awaitable],
+        ],
+        close_timeout: int,
+        **kwargs,
+    ):
         reconnects = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
@@ -165,15 +195,15 @@ class WebSocketClient:
 
                     if len(cmsg) > 0:
                         await processor(cmsg)  # type: ignore
-            except ConnectionClosedOK as e:
-                logger.debug("connection closed (OK): %s", e)
+            except ConnectionClosed as e:
+                ok = isinstance(e, ConnectionClosedOK)
+                logger.debug("connection closed (%s): %s", "OK" if ok else "ERR", e)
                 # the server sends a status (e.g. slow_consumer) before closing
                 self._flush_server_errors(force=True)
-                return
-            except ConnectionClosedError as e:
+                if self._close_requested.is_set():
+                    return
+                # the server can close cleanly too, e.g. after max_connections
                 last_exc = e
-                logger.debug("connection closed (ERR): %s", e)
-                self._flush_server_errors(force=True)
                 reconnects += 1
                 # scheduled_subs is the desired set, including changes not sent
                 # yet: keep it, and subscribe all of it on the next connection
@@ -188,6 +218,11 @@ class WebSocketClient:
             and self.max_reconnects is not None
             and reconnects > self.max_reconnects
         ):
+            if isinstance(last_exc, ConnectionClosedOK):
+                # a clean close is still a failure once connect() gives up
+                raise ConnectionClosedError(
+                    last_exc.rcvd, last_exc.sent, last_exc.rcvd_then_sent
+                ) from last_exc
             raise last_exc
 
     def _ssl_context(self) -> Optional[ssl.SSLContext]:
@@ -321,9 +356,11 @@ class WebSocketClient:
 
     async def close(self):
         """
-        Close the websocket connection.
+        Close the websocket connection and stop `connect()` from reconnecting.
         """
         logger.debug("closing")
+        if self._loop is not None:
+            self._close_requested.set()
         self._flush_server_errors(force=True)
 
         if self.websocket:

@@ -60,6 +60,21 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
         await c.close()
         await asyncio.wait_for(task, 5)
 
+    async def test_reconnects_after_a_clean_close_until_closed(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"])
+        task = self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+
+        # e.g. the server closes cleanly after a slow_consumer status
+        await self.server.close_connections(code=1000)
+        await self.server.wait_for_connections(2)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        self.assertFalse(task.done())
+
+        await c.close()
+        await asyncio.wait_for(task, 5)
+        self.assertEqual(len(self.server.connections), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
