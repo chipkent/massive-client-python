@@ -27,6 +27,7 @@ style:
 ## Check static types
 static:
 	poetry run mypy massive test_* examples
+	cd test_typing && poetry run mypy --strict consumer.py
 
 ## Check code style and static types
 lint: style static
