@@ -119,6 +119,8 @@ class WebSocketClient:
         self._close_requested = threading.Event()
         self._close_event: Optional[asyncio.Event] = None
         self._close_task: Optional[asyncio.Future] = None
+        # whether the server said max_connections during the last handshake
+        self.max_connections_reached = False
         self.reconnect_backoff = reconnect_backoff
         self.max_reconnect_backoff = max_reconnect_backoff
 
@@ -144,6 +146,12 @@ class WebSocketClient:
         handshake, and HTTP 408, 429 or 5xx. Other errors, e.g. any other HTTP
         4xx or a TLS certificate that cannot be verified, are raised at once.
         It returns once `close()` or `request_close()` is called.
+
+        If the server sends a `max_connections` status during the handshake
+        (the account has too many connections open), `max_connections_reached`
+        is set until a later handshake succeeds, and in raw mode the message is
+        also passed to `processor`. The server then closes the connection, and
+        the client reconnects after the backoff.
 
         :param processor: The callback to process messages.
         :param close_timeout: How long to wait for handshake when calling .close.
@@ -219,7 +227,8 @@ class WebSocketClient:
             try:
                 msg = await s.recv()
                 logger.debug("connected: %s", msg)
-                self._log_server_statuses(self.json.loads(msg))
+                msg_parsed = self.json.loads(msg)
+                self._log_server_statuses(msg_parsed)
                 logger.debug("authing...")
                 await s.send(
                     self.json.dumps({"action": "auth", "params": self.api_key})
@@ -229,7 +238,14 @@ class WebSocketClient:
                 logger.debug("authed: %s", auth_msg)
                 if auth_msg_parsed[0]["status"] == "auth_failed":
                     raise AuthError(auth_msg_parsed[0]["message"])
-                failures = 0
+                self.max_connections_reached = False
+                for frame, parsed in ((msg, msg_parsed), (auth_msg, auth_msg_parsed)):
+                    if any(m.get("status") == "max_connections" for m in parsed):
+                        self.max_connections_reached = True
+                        if self.raw:
+                            await processor(frame)  # type: ignore
+                if not self.max_connections_reached:
+                    failures = 0
                 # e.g. max_connections, which the server sends before closing
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
