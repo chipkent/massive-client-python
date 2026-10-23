@@ -1,11 +1,23 @@
 import os
 from collections import Counter
 from enum import Enum
-from typing import Optional, Union, List, Set, Callable, Awaitable, Any
+from typing import (
+    Optional,
+    Union,
+    List,
+    Set,
+    Callable,
+    Awaitable,
+    Any,
+    Iterable,
+    Tuple,
+)
 import logging
 import json
 import asyncio
 import ssl
+import sys
+import threading
 import time
 from .models import *
 from websockets.asyncio.client import connect, ClientConnection
@@ -78,6 +90,22 @@ class WebSocketClient:
             subscriptions = []
         self.scheduled_subs: Set[str] = set(subscriptions)
         self.schedule_resub = True
+        # guards scheduled_subs and schedule_resub, which subscribe() and
+        # friends change on the caller's thread while connect() reads them on
+        # the event loop's thread
+        self._subs_lock = threading.Lock()
+        # topics to subscribe to again even if already subscribed
+        self._resend: Set[str] = set()
+        # wake-up of connect() when subscriptions change: the loop it runs
+        # on, whether a wake-up is queued there, whether one arrived since the
+        # last reconciliation, and how to interrupt the recv() in progress
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._wake_pending = False
+        self._woken = False
+        self._recv_timeout: Optional[Any] = None  # asyncio.Timeout
+        self._recv_woken: Optional["asyncio.Future[None]"] = None  # Python 3.10
+        # how long connect() waits for a message before doing housekeeping
+        self._recv_interval = 1.0
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -105,6 +133,10 @@ class WebSocketClient:
         """
         reconnects = 0
         logger.debug("connect: %s", self.url)
+        self._woken = False
+        with self._subs_lock:
+            self._wake_pending = False
+        self._loop = asyncio.get_running_loop()
         ssl_context = self._ssl_context()
 
         last_exc = None
@@ -133,23 +165,12 @@ class WebSocketClient:
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
                 while True:
-                    if self.schedule_resub:
-                        logger.debug(
-                            "reconciling: %s %s", self.subs, self.scheduled_subs
-                        )
-                        new_subs = self.scheduled_subs.difference(self.subs)
-                        await self._subscribe(new_subs)
-                        old_subs = self.subs.difference(self.scheduled_subs)
-                        await self._unsubscribe(old_subs)
-                        self.subs = self.scheduled_subs
-                        self.subs = set(self.scheduled_subs)
-                        self.schedule_resub = False
+                    await self._reconcile()
 
-                    try:
-                        cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
-                            await asyncio.wait_for(s.recv(), timeout=1)
-                        )
-                    except asyncio.TimeoutError:
+                    cmsg: Optional[Union[List[WebSocketMessage], Union[str, bytes]]] = (
+                        await self._recv(s, timeout=self._recv_interval)
+                    )
+                    if cmsg is None:
                         self._flush_server_errors()
                         continue
 
@@ -175,9 +196,10 @@ class WebSocketClient:
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
                 reconnects += 1
-                self.scheduled_subs = set(self.subs)
-                self.subs = set()
-                self.schedule_resub = True
+                with self._subs_lock:
+                    self.scheduled_subs = set(self.subs)
+                    self.subs = set()
+                    self.schedule_resub = True
                 if self.max_reconnects is not None and reconnects > self.max_reconnects:
                     break
                 continue
@@ -260,6 +282,113 @@ class WebSocketClient:
             self.json.dumps({"action": "unsubscribe", "params": subs})
         )
 
+    async def _recv(
+        self, s: ClientConnection, timeout: float
+    ) -> Optional[Union[str, bytes]]:
+        """
+        Receive the next message, or return None after ``timeout`` seconds or
+        as soon as subscriptions change, whichever comes first.
+
+        recv() is cancellation-safe: a message it has not returned yet is
+        returned by the next call, so interrupting it loses nothing.
+        """
+        if self._woken:
+            return None
+        if sys.version_info >= (3, 11):
+            # _wake_up() moves the deadline to now; no extra task per message
+            try:
+                async with asyncio.timeout(timeout) as self._recv_timeout:
+                    return await s.recv()
+            except TimeoutError:
+                return None
+            finally:
+                self._recv_timeout = None
+        woken: "asyncio.Future[None]" = asyncio.get_running_loop().create_future()
+        self._recv_woken = woken
+        recv = asyncio.ensure_future(s.recv())
+        # asyncio.wait() takes futures of one type
+        waiters: Set["asyncio.Future[Any]"] = {recv, woken}
+        try:
+            await asyncio.wait(
+                waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            self._recv_woken = None
+            if not recv.done():
+                recv.cancel()
+                # recv() must not be called again until this one has finished
+                await asyncio.wait({recv})
+        if recv.cancelled():
+            return None
+        return recv.result()
+
+    def _notify(self):
+        """
+        Wake ``connect()`` so it applies scheduled changes now rather than
+        after its ``recv`` timeout. Safe to call from any thread.
+        """
+        loop = self._loop
+        if loop is None:
+            return
+        with self._subs_lock:
+            # one queued wake-up covers every change made before it runs
+            if self._wake_pending:
+                return
+            self._wake_pending = True
+        try:
+            loop.call_soon_threadsafe(self._wake_up)
+        except RuntimeError:
+            # the loop is closed: connect() is no longer running
+            with self._subs_lock:
+                self._wake_pending = False
+
+    def _wake_up(self):
+        # runs on the loop, before it reads the changes it is woken for
+        with self._subs_lock:
+            self._wake_pending = False
+        self._woken = True
+        timeout = self._recv_timeout
+        # an expiring timeout has already cancelled recv(), and rescheduling
+        # it would raise
+        if timeout is not None and not timeout.expired():
+            timeout.reschedule(asyncio.get_running_loop().time())
+        if self._recv_woken is not None and not self._recv_woken.done():
+            self._recv_woken.set_result(None)
+
+    async def _reconcile(self):
+        """
+        Send the frames that move the server from ``subs`` to ``scheduled_subs``.
+
+        Runs on the event loop's thread. The scheduled set is copied under the
+        lock, so ``subscribe()`` and ``unsubscribe()`` may run concurrently on
+        other threads; anything they schedule meanwhile is applied on the next
+        call.
+        """
+        # clear before reading, so a change made after the copy wakes the loop
+        self._woken = False
+        with self._subs_lock:
+            if not self.schedule_resub:
+                return
+            desired = set(self.scheduled_subs)
+            resend = self._resend
+            self._resend = set()
+            self.schedule_resub = False
+        logger.debug("reconciling: %s %s", self.subs, desired)
+        try:
+            # unsubscribe first, so a client at the server's subscription limit
+            # can swap topics
+            await self._unsubscribe(self.subs.difference(desired))
+            await self._subscribe(
+                desired.difference(self.subs) | resend.intersection(desired)
+            )
+        except BaseException:
+            # e.g. the connection closed: try again on the next connection
+            with self._subs_lock:
+                self._resend |= resend
+                self.schedule_resub = True
+            raise
+        self.subs = desired
+
     @staticmethod
     def _parse_subscription(s: str):
         s = s.strip()
@@ -270,53 +399,124 @@ class WebSocketClient:
 
         return split
 
-    def subscribe(self, *subscriptions: str):
+    def _parse_subscriptions(
+        self, subscriptions: Iterable[str]
+    ) -> List[Tuple[str, str, str]]:
+        """
+        Return ``(subscription, channel, symbol)`` for each well-formed
+        subscription, skipping (and logging) the rest. Parsing happens before
+        taking the lock, so nothing is logged while it is held.
+        """
+        parsed = []
+        for s in subscriptions:
+            topic, sym = self._parse_subscription(s)
+            if topic is not None:
+                parsed.append((s, topic, sym))
+        return parsed
+
+    def _collapse(self, channel: str, keep: Optional[str] = None):
+        """
+        Unschedule every topic on ``channel`` (e.g. ``T``) except ``keep``.
+
+        Matches the channel exactly, so collapsing ``A`` leaves ``AM.AAPL``,
+        and covers topics that are scheduled but not yet subscribed. Call with
+        the lock held.
+        """
+        for t in list(self.scheduled_subs):
+            if t != keep and t.split(".", 1)[0].strip() == channel:
+                self.scheduled_subs.discard(t)
+
+    def subscribe(self, *subscriptions: str, collapse: bool = True):
         """
         Subscribe to given subscriptions.
 
+        Safe to call from any thread, before or while ``connect()`` runs.
+
         :param subscriptions: Subscriptions (args)
+        :param collapse: If true (the default), subscribing to a wildcard such
+            as ``T.*`` also unsubscribes the other topics on that channel
+            (``T.AAPL``, but not ``TX.AAPL``). If false, they stay subscribed.
         """
-        for s in subscriptions:
-            topic, sym = self._parse_subscription(s)
-            if topic == None:
-                continue
+        parsed = self._parse_subscriptions(subscriptions)
+        with self._subs_lock:
+            for s, topic, sym in parsed:
+                self.scheduled_subs.add(s)
+                if collapse and sym == "*":
+                    self._collapse(topic, keep=s)
+
+            self.schedule_resub = True
+        self._notify()
+        for s, _, _ in parsed:
             logger.debug("sub desired: %s", s)
-            self.scheduled_subs.add(s)
-            # If user subs to X.*, remove other X.\w+
-            if sym == "*":
-                for t in list(self.subs):
-                    if t.startswith(topic):
-                        self.scheduled_subs.discard(t)
 
-        self.schedule_resub = True
-
-    def unsubscribe(self, *subscriptions: str):
+    def unsubscribe(self, *subscriptions: str, collapse: bool = True):
         """
         Unsubscribe from given subscriptions.
 
+        Safe to call from any thread, before or while ``connect()`` runs.
+
         :param subscriptions: Subscriptions (args)
+        :param collapse: If true (the default), unsubscribing from a wildcard
+            such as ``T.*`` also unsubscribes every other topic on that channel
+            (``T.AAPL``, but not ``TX.AAPL``). If false, only the wildcard is
+            removed.
         """
-        for s in subscriptions:
-            topic, sym = self._parse_subscription(s)
-            if topic == None:
-                continue
+        parsed = self._parse_subscriptions(subscriptions)
+        with self._subs_lock:
+            for s, topic, sym in parsed:
+                self.scheduled_subs.discard(s)
+                if collapse and sym == "*":
+                    self._collapse(topic)
+
+            self.schedule_resub = True
+        self._notify()
+        for s, _, _ in parsed:
             logger.debug("sub undesired: %s", s)
-            self.scheduled_subs.discard(s)
 
-            # If user unsubs to X.*, remove other X.\w+
-            if sym == "*":
-                for t in list(self.subs):
-                    if t.startswith(topic):
-                        self.scheduled_subs.discard(t)
+    def set_subscriptions(self, desired: Iterable[str], *, resend: Iterable[str] = ()):
+        """
+        Replace the subscriptions with ``desired``, in one step.
 
-        self.schedule_resub = True
+        Safe to call from any thread, before or while ``connect()`` runs. The
+        client sends at most one unsubscribe message, for the topics no longer
+        desired, followed by at most one subscribe message, for the new topics
+        plus those in ``resend``. Topics in both the old and the new set are
+        left alone unless they are in ``resend``.
+
+        Use ``resend`` to subscribe again to topics the client already
+        considers subscribed, e.g. ones the server never acknowledged.
+        Wildcards such as ``T.*`` are ordinary topics here: nothing collapses.
+
+        :param desired: Every topic to be subscribed to afterwards, e.g.
+            ``["T.AAPL", "Q.*"]``. Malformed topics are logged and skipped.
+        :param resend: Topics of ``desired`` to send in the subscribe message
+            even if already subscribed. Each call replaces the resends of
+            earlier calls that have not been sent yet.
+        :raises ValueError: If a topic in ``resend`` is not in ``desired``; the
+            subscriptions are then left unchanged.
+        """
+        topics = {s for s, _, _ in self._parse_subscriptions(desired)}
+        again = set(resend)
+        unknown = again.difference(topics)
+        if unknown:
+            raise ValueError(f"resend topics not in desired: {sorted(unknown)}")
+        with self._subs_lock:
+            self.scheduled_subs = topics
+            self._resend = again
+            self.schedule_resub = True
+        self._notify()
+        logger.debug("subs desired: %s (resend %s)", topics, again)
 
     def unsubscribe_all(self):
         """
         Unsubscribe from all subscriptions.
+
+        Safe to call from any thread, before or while ``connect()`` runs.
         """
-        self.scheduled_subs = set()
-        self.schedule_resub = True
+        with self._subs_lock:
+            self.scheduled_subs = set()
+            self.schedule_resub = True
+        self._notify()
 
     async def close(self):
         """
