@@ -556,7 +556,7 @@ class WebSocketClient:
         s = s.strip()
         split = s.split(".", 1)  # Split at the first period
         if len(split) != 2:
-            logger.warning("invalid subscription:", s)
+            logger.warning("invalid subscription: %s", s)
             return [None, None]
 
         return split
