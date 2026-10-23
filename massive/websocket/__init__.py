@@ -175,7 +175,8 @@ class WebSocketClient:
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
                 reconnects += 1
-                self.scheduled_subs = set(self.subs)
+                # scheduled_subs is the desired set, including changes not sent
+                # yet: keep it, and subscribe all of it on the next connection
                 self.subs = set()
                 self.schedule_resub = True
                 if self.max_reconnects is not None and reconnects > self.max_reconnects:
