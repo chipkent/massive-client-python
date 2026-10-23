@@ -1,10 +1,11 @@
 import asyncio
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Set
+from typing import Any, Dict, List, Set
 
-from fake_server import FakeServer
+from fake_server import FakeConnection, FakeServer
 
 from massive import WebSocketClient
 
@@ -26,7 +27,8 @@ class SubscriptionsTest(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(c.connect(ignore))
 
         async def stop():
-            await c.close()
+            if not task.done():
+                await c.close()
             await asyncio.wait_for(task, 5)
 
         self.addAsyncCleanup(stop)
@@ -73,6 +75,129 @@ class ThreadSafetyTest(SubscriptionsTest):
         await self.server.wait_for_subscriptions(desired, timeout=10)
         await self.server.wait_for(lambda: c.subs == desired)
         self.assertEqual(len(self.server.open_connections), 1)
+
+
+class WakeUpTest(SubscriptionsTest):
+    # generous for slow CI machines, yet far below recv_interval, so a missed
+    # wake-up fails the test deterministically
+    max_latency = 0.5
+    recv_interval = 30.0
+
+    def client(self, **kwargs) -> WebSocketClient:
+        c = super().client(**kwargs)
+        c._recv_interval = self.recv_interval
+        return c
+
+    async def measure(self, change) -> float:
+        """Seconds from calling ``change()`` to the server receiving a frame."""
+        received: List[float] = []
+
+        async def on_message(conn: FakeConnection, msg: Any):
+            if isinstance(msg, dict) and msg.get("action") != "auth":
+                received.append(time.monotonic())
+
+        self.server.on_message = on_message
+        c = self.client(subscriptions=["T.AAPL"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        received.clear()
+        # let the loop settle into waiting for a message
+        await asyncio.sleep(0.2)
+        start = time.monotonic()
+        await change(c)
+        await self.server.wait_for(lambda: bool(received))
+        return received[0] - start
+
+    async def test_subscribe_is_sent_promptly(self) -> None:
+        async def change(c: WebSocketClient):
+            c.subscribe("T.MSFT")
+
+        self.assertLess(await self.measure(change), self.max_latency)
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.MSFT"})
+
+    async def test_unsubscribe_from_another_thread_is_sent_promptly(self) -> None:
+        async def change(c: WebSocketClient):
+            await asyncio.to_thread(c.unsubscribe, "T.AAPL")
+
+        self.assertLess(await self.measure(change), self.max_latency)
+        await self.server.wait_for_subscriptions(set())
+
+    async def test_unsubscribe_all_is_sent_promptly(self) -> None:
+        async def change(c: WebSocketClient):
+            c.unsubscribe_all()
+
+        self.assertLess(await self.measure(change), self.max_latency)
+        await self.server.wait_for_subscriptions(set())
+
+    async def test_subscribe_before_connect_and_after_its_loop_closed(self) -> None:
+        c = self.client()
+        c.subscribe("T.AAPL")  # connect() has not created its loop yet
+
+        async def processor(msgs):
+            await c.close()
+
+        connected = asyncio.create_task(
+            asyncio.to_thread(asyncio.run, c.connect(processor))
+        )
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        await self.server.send_data(
+            [{"ev": "T", "sym": "AAPL", "x": 1, "p": 1, "s": 1, "t": 1}]
+        )
+        await asyncio.wait_for(connected, 5)
+        c.subscribe("T.MSFT")  # connect()'s loop is closed
+        self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.MSFT"})
+
+    async def test_wake_up_while_recv_times_out(self) -> None:
+        # a wake-up that lands while the recv() timeout is expiring must not
+        # try to reschedule it
+        errors: List[Dict[str, Any]] = []
+        loop = asyncio.get_running_loop()
+        handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda loop, context: errors.append(context))
+        self.addCleanup(loop.set_exception_handler, handler)
+
+        c = self.client(subscriptions=["T.AAPL"])
+        c._recv_interval = 0.0005
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        stop = threading.Event()
+
+        def hammer():
+            while not stop.is_set():
+                c.subscribe("T.X")
+                c.unsubscribe("T.X")
+
+        thread = threading.Thread(target=hammer)
+        thread.start()
+        try:
+            await asyncio.sleep(1)
+        finally:
+            stop.set()
+            thread.join()
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        self.assertEqual(errors, [])
+
+    async def test_messages_are_not_lost_when_woken(self) -> None:
+        received: List[str] = []
+
+        async def processor(msgs):
+            received.extend(m.symbol for m in msgs)
+
+        c = self.client(subscriptions=["T.AAPL"])
+        task = asyncio.create_task(c.connect(processor))
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        for i in range(200):
+            await self.server.send_data(
+                [{"ev": "T", "sym": f"S{i}", "x": 1, "p": 1, "s": 1, "t": 1}]
+            )
+            if i % 2:
+                c.subscribe(f"T.S{i}")
+            else:
+                c.unsubscribe(f"T.S{i - 1}")
+        await self.server.wait_for(lambda: len(received) == 200)
+        self.assertEqual(received, [f"S{i}" for i in range(200)])
+        await c.close()
+        await asyncio.wait_for(task, 5)
 
 
 if __name__ == "__main__":
