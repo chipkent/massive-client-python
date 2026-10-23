@@ -103,10 +103,11 @@ class WebSocketClient:
             self.json = custom_json
         else:
             self.json = json
-        # set while connect() runs; close() also stops it from reconnecting
+        # set while connect() runs; close() and request_close() stop it
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._close_requested = threading.Event()
         self._close_event: Optional[asyncio.Event] = None
+        self._close_task: Optional[asyncio.Future] = None
         self.reconnect_backoff = reconnect_backoff
         self.max_reconnect_backoff = max_reconnect_backoff
 
@@ -129,7 +130,7 @@ class WebSocketClient:
         client waits (see `reconnect_backoff`), reconnects, and subscribes
         again to every scheduled subscription. Other errors, e.g. HTTP 4xx or
         a TLS certificate that cannot be verified, are raised at once. It
-        returns once `close()` is called.
+        returns once `close()` or `request_close()` is called.
 
         :param processor: The callback to process messages.
         :param close_timeout: How long to wait for handshake when calling .close.
@@ -142,10 +143,14 @@ class WebSocketClient:
         self._close_event = asyncio.Event()
         try:
             await self._connect(processor, close_timeout, **kwargs)
+            # it returned because close was requested, which is now done
+            self._close_requested.clear()
         finally:
             self._loop = None
             self._close_event = None
-            self._close_requested.clear()
+            closing, self._close_task = self._close_task, None
+            if closing is not None:
+                await asyncio.gather(closing, return_exceptions=True)
 
     async def _connect(
         self,
@@ -172,7 +177,7 @@ class WebSocketClient:
             if failures > 0 and await self._wait_for_close(delay):
                 return
             try:
-                s = await connector
+                s = await self._open(connector)
             except Exception as e:
                 if not self._is_transient(e):
                     raise
@@ -183,8 +188,7 @@ class WebSocketClient:
                 delay = self._reconnect_delay(failures - 1)
                 logger.warning("connect failed; reconnecting in %.1f s: %s", delay, e)
                 continue
-            if self._close_requested.is_set():
-                await s.close()
+            if s is None:
                 return
             self.websocket = s
             try:
@@ -299,6 +303,30 @@ class WebSocketClient:
             self.max_reconnect_backoff,
         )
         return random.uniform(base, min(1.2 * base, self.max_reconnect_backoff))
+
+    async def _open(
+        self, connector: Awaitable[ClientConnection]
+    ) -> Optional[ClientConnection]:
+        """Open a connection, or return None if close is requested first."""
+        assert self._close_event is not None
+        attempt = asyncio.ensure_future(connector)
+        closing = asyncio.ensure_future(self._close_event.wait())
+        try:
+            await asyncio.wait({attempt, closing}, return_when=asyncio.FIRST_COMPLETED)
+        except BaseException:
+            attempt.cancel()
+            closing.cancel()
+            raise
+        stop = closing.done() or self._close_requested.is_set()
+        closing.cancel()
+        if not stop:
+            return attempt.result()
+        # close was requested: abandon the attempt, or close what it opened
+        attempt.cancel()
+        await asyncio.wait({attempt})
+        if not attempt.cancelled() and attempt.exception() is None:
+            await attempt.result().close()
+        return None
 
     async def _wait_for_close(self, timeout: float) -> bool:
         """Wait up to `timeout` seconds; return whether close was requested."""
@@ -437,6 +465,37 @@ class WebSocketClient:
         """
         self.scheduled_subs = set()
         self.schedule_resub = True
+
+    def request_close(self):
+        """
+        Close the websocket connection and make `connect()` return.
+
+        Unlike `close()`, this can be called from any thread, and it does not
+        wait: `connect()` returns soon after, including while it is
+        connecting or waiting to reconnect. If no `connect()` is running, the
+        next one returns without connecting; the request stays pending until a
+        `connect()` returns because of it.
+        """
+        logger.debug("close requested")
+        self._close_requested.set()
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(self._on_close_requested)
+        except RuntimeError:
+            # the loop is closed, so connect() has returned
+            pass
+
+    def _on_close_requested(self):
+        # runs on the event loop of connect(); the request may be stale, e.g.
+        # queued for an earlier connect() on the same loop
+        if not self._close_requested.is_set():
+            return
+        if self._close_event is not None:
+            self._close_event.set()
+        if self.websocket is not None:
+            self._close_task = asyncio.ensure_future(self.websocket.close())
 
     async def close(self):
         """
