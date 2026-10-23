@@ -1,9 +1,10 @@
 import asyncio
+import json
 import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, cast
 
 from fake_server import FakeConnection, FakeServer
 
@@ -243,6 +244,121 @@ class WildcardTest(SubscriptionsTest):
         await self.server.wait_for_subscriptions({"T.AAPL", "T.*", "TX.AAPL", "AM.X"})
         c.unsubscribe("T.*", "A.*")  # collapses by default
         await self.server.wait_for_subscriptions({"TX.AAPL", "AM.X"})
+
+
+class SetSubscriptionsTest(SubscriptionsTest):
+    def frames_after(self, n: int) -> List[Any]:
+        """The subscribe/unsubscribe frames after the first ``n`` messages."""
+        frames = []
+        for m in self.server.connection.inbox[n:]:
+            topics = set(m["params"].split(","))
+            frames.append((m["action"], topics))
+        return frames
+
+    async def test_one_frame_per_action(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B", "T.C", "Q.*"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B", "T.C", "Q.*"})
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions(["T.B", "T.C", "T.D", "T.E"], resend=["T.C"])
+        self.assertEqual(c.scheduled_subs, {"T.B", "T.C", "T.D", "T.E"})
+        await self.server.wait_for_subscriptions({"T.B", "T.C", "T.D", "T.E"})
+        await self.server.wait_for(lambda: len(self.server.connection.inbox) == n + 2)
+        self.assertEqual(
+            self.frames_after(n),
+            [
+                ("unsubscribe", {"T.A", "Q.*"}),
+                ("subscribe", {"T.C", "T.D", "T.E"}),
+            ],
+        )
+        self.assertEqual(c.subs, {"T.B", "T.C", "T.D", "T.E"})
+
+    async def test_resend_of_an_acknowledged_topic(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions(["T.A", "T.B"], resend=["T.A"])
+        await self.server.wait_for(lambda: len(self.server.connection.inbox) > n)
+        # then a change of its own, to show nothing else was sent in between
+        c.subscribe("T.Z")
+        await self.server.wait_for(lambda: len(self.server.connection.inbox) == n + 2)
+        self.assertEqual(
+            self.frames_after(n), [("subscribe", {"T.A"}), ("subscribe", {"T.Z"})]
+        )
+
+    async def test_unchanged_set_sends_nothing(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions({"T.A"})
+        c.subscribe("T.Z")
+        await self.server.wait_for(lambda: len(self.server.connection.inbox) == n + 1)
+        await asyncio.sleep(0.05)
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.Z"})])
+
+    async def test_before_connect(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        c.set_subscriptions(["T.B", "T.*"], resend=["T.B"])
+        self.assertEqual(c.scheduled_subs, {"T.B", "T.*"})
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.B", "T.*"})
+        self.assertEqual(self.frames_after(1), [("subscribe", {"T.B", "T.*"})])
+
+    async def test_resend_dropped_by_a_later_call(self) -> None:
+        c = self.client()
+        c.set_subscriptions(["T.A", "T.B"], resend=["T.A"])
+        c.set_subscriptions(["T.B"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.B"})
+        self.assertEqual(self.frames_after(1), [("subscribe", {"T.B"})])
+
+    async def test_resend_replaced_by_a_later_call(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+        n = len(self.server.connection.inbox)
+        # both calls run before the loop can send anything
+        c.set_subscriptions(["T.A", "T.B"], resend=["T.A"])
+        c.set_subscriptions(["T.A", "T.B"], resend=["T.B"])
+        c.subscribe("T.Z")
+        await self.server.wait_for(lambda: len(self.server.connection.inbox) > n)
+        await asyncio.sleep(0.05)
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.B", "T.Z"})])
+
+    async def test_resend_must_be_desired(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        with self.assertRaises(ValueError):
+            c.set_subscriptions(["T.B"], resend=["T.A", "T.B"])
+        self.assertEqual(c.scheduled_subs, {"T.A"})
+
+    async def test_pending_changes_survive_a_failed_send(self) -> None:
+        sent: List[Any] = []
+
+        class Socket:
+            fail = True
+
+            async def send(self, message: str):
+                if self.fail:
+                    raise ConnectionError("send failed")
+                sent.append(json.loads(message))
+
+        # drive the reconciliation by hand, as connect() does
+        c = self.client()
+        c.subs = {"T.A"}
+        c.set_subscriptions(["T.A"], resend=["T.A"])
+        socket = Socket()
+        c.websocket = cast(Any, socket)
+        with self.assertRaises(ConnectionError):
+            await c._reconcile()
+        self.assertTrue(c.schedule_resub)
+        socket.fail = False
+        await c._reconcile()
+        self.assertEqual(sent, [{"action": "subscribe", "params": "T.A"}])
+        self.assertFalse(c.schedule_resub)
+        await c._reconcile()
+        self.assertEqual(len(sent), 1)
 
 
 if __name__ == "__main__":
