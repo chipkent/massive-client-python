@@ -8,6 +8,7 @@ from .models.economy import (
     TreasuryYield,
     FedInflationExpectations,
     FedLaborMarket,
+    FedFundingConditions,
     EUMerchantAggregate,
     EUMerchantHierarchy,
 )
@@ -168,6 +169,45 @@ class EconomyClient(BaseClient):
             params=self._get_params(self.list_labor_market_indicators, locals()),
             deserializer=FedLaborMarket.from_dict,
             raw=raw,
+            options=options,
+        )
+
+    def list_funding_conditions(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FedFundingConditions], HTTPResponse]:
+        """
+        Daily U.S. money-market funding conditions from the Federal Reserve and the Federal Reserve Bank of New York, including the Federal Funds Effective Rate, SOFR, OBFR, tri-party general collateral repo rates, Treasury-collateralized overnight reverse repo and repo operation amounts, and commercial paper rates.
+
+        :param date: Calendar date of the observation (YYYY-MM-DD).
+        :param date_gt: Filter greater than the value.
+        :param date_gte: Filter greater than or equal to the value.
+        :param date_lt: Filter less than the value.
+        :param date_lte: Filter less than or equal to the value.
+        :param limit: Limit the maximum number of results returned. Defaults to '100' if not specified. The maximum allowed limit is '50000'.
+        :param sort: A comma separated list of sort columns. For each column, append '.asc' or '.desc' to specify the sort direction, e.g. "date.desc". The sort column defaults to 'date' if not specified. The sort order defaults to 'asc' if not specified. The value is sent as given.
+        :param params: Additional query parameters.
+        :param raw: Return raw HTTPResponse object if True, else return Iterator[FedFundingConditions].
+        :param options: RequestOptionBuilder for additional headers or params.
+        :return: An iterator of FedFundingConditions objects or HTTPResponse if raw=True.
+        """
+        url = "/fed/v1/funding-conditions"
+
+        return self._paginate(
+            path=url,
+            params=self._get_params(self.list_funding_conditions, locals()),
+            deserializer=FedFundingConditions.from_dict,
+            raw=raw,
+            result_key="results",
             options=options,
         )
 

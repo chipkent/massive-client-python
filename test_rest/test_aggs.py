@@ -3,6 +3,8 @@ from massive.rest.models import (
     Agg,
     GroupedDailyAgg,
     DailyOpenCloseAgg,
+    DailyOpenCloseCrypto,
+    DailyOpenCloseCryptoTrade,
     PreviousCloseAgg,
 )
 
@@ -92,6 +94,56 @@ class AggsTest(BaseTest):
             status="OK",
             symbol="AAPL",
             volume=75089134,
+        )
+
+        self.assertEqual(aggs, expected)
+
+    def test_get_daily_open_close_crypto(self):
+        aggs = self.c.get_daily_open_close_crypto(
+            "BTC", "USD", "2020-10-09", adjusted=True
+        )
+        expected = DailyOpenCloseCrypto(
+            symbol="BTC-USD",
+            is_utc=True,
+            day="2020-10-09T00:00:00.000Z",
+            open=10932.44,
+            close=11050.64,
+            open_trades=[
+                DailyOpenCloseCryptoTrade(
+                    conditions=[2],
+                    id="511235746",
+                    price=10932.44,
+                    size=0.002,
+                    timestamp=1602201600056,
+                    exchange=1,
+                ),
+                DailyOpenCloseCryptoTrade(
+                    conditions=[2],
+                    id="511235751",
+                    price=10923.76,
+                    size=0.02,
+                    timestamp=1602201600141,
+                    exchange=4,
+                ),
+            ],
+            closing_trades=[
+                DailyOpenCloseCryptoTrade(
+                    conditions=[2],
+                    id="973323250",
+                    price=11050.64,
+                    size=0.006128,
+                    timestamp=1602287999795,
+                    exchange=4,
+                ),
+                DailyOpenCloseCryptoTrade(
+                    conditions=[1],
+                    id="105717893",
+                    price=11049.4,
+                    size=0.014,
+                    timestamp=1602287999659,
+                    exchange=17,
+                ),
+            ],
         )
 
         self.assertEqual(aggs, expected)
