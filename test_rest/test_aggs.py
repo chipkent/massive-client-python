@@ -98,6 +98,7 @@ class AggsTest(BaseTest):
 
     def test_get_previous_close_agg(self):
         aggs = self.c.get_previous_close_agg("AAPL")
+        self.assertIsInstance(aggs, list)
         expected = [
             PreviousCloseAgg(
                 ticker="AAPL",
