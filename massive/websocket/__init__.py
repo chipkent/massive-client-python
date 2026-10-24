@@ -12,6 +12,7 @@ from typing import (
     Tuple,
     TypeVar,
     cast,
+    Iterable,
 )
 import logging
 import json
@@ -110,6 +111,11 @@ class WebSocketClient:
         # guards scheduled_subs and schedule_resub, which subscribe() and
         # friends change on the caller's thread while connect() reads them
         self._subs_lock = threading.Lock()
+        # set_subscriptions() was called since the last update was sent, so
+        # send removals first; guarded by _subs_lock
+        self._removals_first = False
+        # topics resubscribe() asked to send again; guarded by _subs_lock
+        self._resend: Set[str] = set()
         # while a connection is open: its loop, and the event that wakes its
         # sender task (see _start_sender)
         self._wake: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
@@ -349,11 +355,19 @@ class WebSocketClient:
             if not self.schedule_resub:
                 return
             desired = set(self.scheduled_subs)
+            removals_first, self._removals_first = self._removals_first, False
+            resend, self._resend = self._resend, set()
             self.schedule_resub = False
         logger.debug("reconciling: %s %s", self.subs, desired)
+        added = desired.difference(self.subs) | resend.intersection(desired)
+        removed = self.subs.difference(desired)
         try:
-            await self._subscribe(desired.difference(self.subs))
-            await self._unsubscribe(self.subs.difference(desired))
+            if removals_first:
+                await self._unsubscribe(removed)
+                await self._subscribe(added)
+            else:
+                await self._subscribe(added)
+                await self._unsubscribe(removed)
         except BaseException:
             # e.g. the connection closed: send it all on the next connection
             with self._subs_lock:
@@ -420,6 +434,46 @@ class WebSocketClient:
         Unsubscribe from all subscriptions. Safe to call from any thread.
         """
         self.scheduled_subs = set()
+        self.schedule_resub = True
+
+    @_changes_subscriptions
+    def set_subscriptions(self, desired: Iterable[str]):
+        """
+        Replace all subscriptions with ``desired``, in one step. Safe to call
+        from any thread.
+
+        The client sends one unsubscribe message for the topics no longer
+        desired, then one subscribe message for the new ones, together with
+        any changes from ``subscribe()`` or ``unsubscribe()`` not sent yet.
+        Removals go first, so a client at the server's subscription limit
+        can swap topics; data that a removed and an added topic both cover
+        (e.g. ``T.AAPL`` replaced by ``T.*``) is not delivered in between.
+        Wildcards such as ``T.*`` are ordinary topics here.
+
+        :param desired: Every topic to be subscribed to afterwards. Malformed
+            topics are logged and skipped.
+        """
+        topics = {s for s in desired if self._parse_subscription(s)[0] is not None}
+        self.scheduled_subs = topics
+        self._removals_first = True
+        self.schedule_resub = True
+
+    @_changes_subscriptions
+    def resubscribe(self, *topics: str):
+        """
+        Send a subscribe message again for topics already subscribed, e.g.
+        ones the server never acknowledged. Safe to call from any thread.
+
+        :param topics: Topics to send again (args). Malformed topics are
+            logged and skipped.
+        :raises ValueError: If a topic is not subscribed or scheduled to be;
+            nothing is sent then.
+        """
+        again = {s for s in topics if self._parse_subscription(s)[0] is not None}
+        unknown = again.difference(self.scheduled_subs)
+        if unknown:
+            raise ValueError(f"not subscribed: {sorted(unknown)}")
+        self._resend |= again
         self.schedule_resub = True
 
     async def close(self):
