@@ -7,6 +7,7 @@ import json
 import asyncio
 import random
 import ssl
+import threading
 import time
 from .models import *
 from websockets.asyncio.client import connect, ClientConnection, process_exception
@@ -113,6 +114,12 @@ class WebSocketClient:
             self.json = custom_json
         else:
             self.json = json
+        # set by request_close(), and by close() while connect() runs;
+        # connect() returns instead of reconnecting
+        self._close_requested = threading.Event()
+        # the event loop connect() runs on, while it runs
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._closing: Optional[asyncio.Future] = None
 
     # https://websockets.readthedocs.io/en/stable/reference/client.html#opening-a-connection
     async def connect(
@@ -132,6 +139,24 @@ class WebSocketClient:
         :param kwargs: Passed to websockets' connect(), e.g. process_exception.
         :raises AuthError: If invalid API key is supplied.
         """
+        self._loop = asyncio.get_running_loop()
+        try:
+            await self._connect(processor, close_timeout, **kwargs)
+        finally:
+            self._loop = None
+            self._close_requested.clear()
+
+    async def _connect(
+        self,
+        processor: Union[
+            Callable[[List[WebSocketMessage]], Awaitable],
+            Callable[[Union[str, bytes]], Awaitable],
+        ],
+        close_timeout: int,
+        **kwargs,
+    ):
+        if self._close_requested.is_set():
+            return
         # a new connection has no subscriptions, whatever an earlier call left
         self.subs = set()
         self.schedule_resub = True
@@ -161,6 +186,9 @@ class WebSocketClient:
             process_exception=on_connect_error,
             **kwargs,
         ):
+            if self._close_requested.is_set():
+                await s.close()  # requested while connecting
+                return
             self.websocket = s
             connected_at = None
             try:
@@ -230,6 +258,8 @@ class WebSocketClient:
                 last_exc = e
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
+            if self._close_requested.is_set():
+                return
             reconnects += 1
             # keep scheduled_subs, which may hold changes not sent yet,
             # and subscribe to all of it on the next connection
@@ -250,6 +280,8 @@ class WebSocketClient:
                 delay = self._reconnect_delay(failures)
                 logger.debug("reconnecting in %.1f s", delay)
                 await asyncio.sleep(delay)
+                if self._close_requested.is_set():
+                    return  # requested during the wait
 
         if last_exc is not None:
             raise last_exc
@@ -398,9 +430,13 @@ class WebSocketClient:
 
     async def close(self):
         """
-        Close the websocket connection.
+        Close the websocket connection. If ``connect()`` is running, it
+        returns instead of reconnecting, also during a wait before
+        reconnecting.
         """
         logger.debug("closing")
+        if self._loop is not None:
+            self._close_requested.set()  # connect() clears it when it returns
         self._flush_server_errors(force=True)
 
         if self.websocket:
@@ -408,3 +444,28 @@ class WebSocketClient:
             self.websocket = None
         else:
             logger.warning("no websocket open to close")
+
+    def request_close(self):
+        """
+        Close the websocket connection and make ``connect()`` return instead
+        of reconnecting. Unlike ``close()``, this is safe to call from any
+        thread, e.g. to stop ``run()``, and it does not wait.
+
+        An attempt to connect, or a wait before reconnecting, is not
+        interrupted: ``connect()`` returns once it ends. If ``connect()`` is
+        not running, the next call returns at once.
+        """
+        logger.debug("close requested")
+        self._close_requested.set()
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(self._close_soon)
+        except RuntimeError:
+            pass  # the loop is closed, so connect() has returned
+
+    def _close_soon(self):
+        # on connect()'s loop; recv() then raises and connect() returns
+        if self.websocket is not None:
+            self._closing = asyncio.ensure_future(self.websocket.close())

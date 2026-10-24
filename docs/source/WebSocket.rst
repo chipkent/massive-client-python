@@ -39,6 +39,11 @@ Close
 ============================
 .. automethod:: massive.WebSocketClient.close
 
+============================
+Request close
+============================
+.. automethod:: massive.WebSocketClient.request_close
+
 .. _Stocks getting started: https://massive.com/docs/stocks/ws_getting-started
 .. _Options getting started: https://massive.com/docs/options/ws_getting-started
 .. _Forex getting started: https://massive.com/docs/forex/ws_getting-started
