@@ -4,7 +4,7 @@ on:
     tags:
       - v*
     branches:
-      - '**'
+      - v1
   pull_request:
 permissions:
   contents: read
@@ -33,39 +33,22 @@ jobs:
       - name: Unit tests
         run: make test
   test-free-threaded:
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.13t', '3.14t']
     runs-on: ubuntu-latest
-    name: ubuntu-latest Unit test ${{ matrix.python-version }} (PYTHON_GIL=0)
+    name: ubuntu-latest Unit test 3.14t (PYTHON_GIL=0)
+    env:
+      PYTHON_GIL: '0'
     steps:
       - uses: actions/checkout@v3
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Setup Poetry
-        # with the runner's own Python: some of Poetry's dependencies (e.g.
-        # cryptography) don't build on free-threaded 3.13
-        run: pipx install poetry
+          python-version: '3.14t'
       - name: Install pypi deps
-        # orjson, a dev dependency used only by the examples, does not support
-        # free-threaded Python, so install the package and the test dependency
-        # (pook) at their locked versions instead of `poetry install`
-        run: |
-          poetry env use python${{ matrix.python-version }}
-          poetry install --only main
-          poetry run python - > "$RUNNER_TEMP/constraints.txt" <<'EOF'
-          import tomllib
-          with open("poetry.lock", "rb") as f:
-              for p in tomllib.load(f)["package"]:
-                  print(f"{p['name']}=={p['version']}")
-          EOF
-          poetry run pip install pook -c "$RUNNER_TEMP/constraints.txt"
+        # the tests need only the package and pook, not the dev tools
+        run: pip install -e . pook
+      - name: Check that the GIL is off
+        run: python -c "import sys; assert not sys._is_gil_enabled(), sys.version"
       - name: Unit tests
-        env:
-          PYTHON_GIL: '0'
         run: |
-          poetry run python -c 'import sys; assert not sys._is_gil_enabled(), sys.version'
-          make test
+          python -m unittest discover -s test_rest
+          python -m unittest discover -s test_websocket

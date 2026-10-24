@@ -221,7 +221,7 @@ class CryptoQuote:
     bid_size: Optional[float] = None
     ask_price: Optional[float] = None
     ask_size: Optional[float] = None
-    timestamp: Optional[int] = None
+    timestamp: Optional[float] = None
     exchange_id: Optional[int] = None
     received_timestamp: Optional[int] = None
 

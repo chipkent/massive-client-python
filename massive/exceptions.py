@@ -1,5 +1,8 @@
 from typing import Optional
 
+# the package star-imports this module; keep Optional out of its namespace
+__all__ = ["AuthError", "BadResponse"]
+
 
 class AuthError(Exception):
     """
@@ -13,26 +16,10 @@ class BadResponse(Exception):
     """
     Non-200 response from API
 
-    The exception message (``str(exc)`` and ``exc.args[0]``) is the response
-    body, as before. The HTTP status code and the decoded body are also
-    available as attributes, so callers can tell, for example, a 403 from a
-    429 without parsing the message.
-
-    :param message: The exception message, normally the response body.
-    :param status: The HTTP status code of the response, if known.
-    :param body: The decoded response body. Defaults to ``message``.
-    :ivar status: The HTTP status code of the response, or ``None`` if the
-        exception was raised without one.
-    :ivar body: The decoded response body.
+    The message is the response body. ``status`` is the HTTP status code, or
+    None if not given.
     """
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        status: Optional[int] = None,
-        body: Optional[str] = None,
-    ):
-        super().__init__(message)
+    def __init__(self, *args: object, status: Optional[int] = None):
+        super().__init__(*args)
         self.status = status
-        self.body = message if body is None else body

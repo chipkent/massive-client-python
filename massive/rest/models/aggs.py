@@ -162,7 +162,7 @@ class PreviousCloseAgg:
     high: Optional[float] = None
     low: Optional[float] = None
     open: Optional[float] = None
-    timestamp: Optional[int] = None
+    timestamp: Optional[float] = None
     volume: Optional[float] = None
     vwap: Optional[float] = None
 

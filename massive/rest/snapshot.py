@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union, Iterator
+from typing import Optional, Any, Dict, List, Union, Iterator, Literal, overload
 from .models import (
     TickerSnapshot,
     Direction,
@@ -24,6 +24,55 @@ def get_locale(market_type: Union[SnapshotMarketType, str]):
 
 
 class SnapshotClient(BaseClient):
+    @overload
+    def list_universal_snapshots(
+        self,
+        type: Optional[Union[str, SnapshotMarketType]] = None,
+        ticker_any_of: Optional[List[str]] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[UniversalSnapshot]: ...
+    @overload
+    def list_universal_snapshots(
+        self,
+        type: Optional[Union[str, SnapshotMarketType]] = None,
+        ticker_any_of: Optional[List[str]] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_universal_snapshots(
+        self,
+        type: Optional[Union[str, SnapshotMarketType]] = None,
+        ticker_any_of: Optional[List[str]] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[UniversalSnapshot], HTTPResponse]: ...
     def list_universal_snapshots(
         self,
         type: Optional[Union[str, SnapshotMarketType]] = None,
@@ -72,6 +121,37 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_all(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        tickers: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        include_otc: Optional[bool] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[TickerSnapshot]: ...
+    @overload
+    def get_snapshot_all(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        tickers: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        include_otc: Optional[bool] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_all(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        tickers: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        include_otc: Optional[bool] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[TickerSnapshot], HTTPResponse]: ...
     def get_snapshot_all(
         self,
         market_type: Union[str, SnapshotMarketType],
@@ -104,6 +184,37 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_direction(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        direction: Union[str, Direction],
+        params: Optional[Dict[str, Any]] = None,
+        include_otc: Optional[bool] = False,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[TickerSnapshot]: ...
+    @overload
+    def get_snapshot_direction(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        direction: Union[str, Direction],
+        params: Optional[Dict[str, Any]] = None,
+        include_otc: Optional[bool] = False,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_direction(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        direction: Union[str, Direction],
+        params: Optional[Dict[str, Any]] = None,
+        include_otc: Optional[bool] = False,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[TickerSnapshot], HTTPResponse]: ...
     def get_snapshot_direction(
         self,
         market_type: Union[str, SnapshotMarketType],
@@ -136,6 +247,34 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_ticker(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> TickerSnapshot: ...
+    @overload
+    def get_snapshot_ticker(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_ticker(
+        self,
+        market_type: Union[str, SnapshotMarketType],
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[TickerSnapshot, HTTPResponse]: ...
     def get_snapshot_ticker(
         self,
         market_type: Union[str, SnapshotMarketType],
@@ -164,6 +303,34 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_option(
+        self,
+        underlying_asset: str,
+        option_contract: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> OptionContractSnapshot: ...
+    @overload
+    def get_snapshot_option(
+        self,
+        underlying_asset: str,
+        option_contract: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_option(
+        self,
+        underlying_asset: str,
+        option_contract: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[OptionContractSnapshot, HTTPResponse]: ...
     def get_snapshot_option(
         self,
         underlying_asset: str,
@@ -189,6 +356,31 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_snapshot_options_chain(
+        self,
+        underlying_asset: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[OptionContractSnapshot]: ...
+    @overload
+    def list_snapshot_options_chain(
+        self,
+        underlying_asset: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_snapshot_options_chain(
+        self,
+        underlying_asset: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[OptionContractSnapshot], HTTPResponse]: ...
     def list_snapshot_options_chain(
         self,
         underlying_asset: str,
@@ -212,6 +404,31 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_crypto_book(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> SnapshotTickerFullBook: ...
+    @overload
+    def get_snapshot_crypto_book(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_crypto_book(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[SnapshotTickerFullBook, HTTPResponse]: ...
     def get_snapshot_crypto_book(
         self,
         ticker: str,
@@ -237,6 +454,31 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_snapshot_indices(
+        self,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[IndicesSnapshot]: ...
+    @overload
+    def get_snapshot_indices(
+        self,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_snapshot_indices(
+        self,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[IndicesSnapshot], HTTPResponse]: ...
     def get_snapshot_indices(
         self,
         ticker_any_of: Optional[Union[str, List[str]]] = None,
@@ -266,6 +508,55 @@ class SnapshotClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_snapshot_indices(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[IndicesSnapshot]: ...
+    @overload
+    def list_snapshot_indices(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_snapshot_indices(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[Union[str, List[str]]] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[IndicesSnapshot], HTTPResponse]: ...
     def list_snapshot_indices(
         self,
         ticker: Optional[str] = None,

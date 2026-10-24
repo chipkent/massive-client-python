@@ -38,6 +38,7 @@ class BaseClient:
         ca_certs: Optional[str] = None,
         proxy: Optional[str] = None,
         connection_pool_kw: Optional[Dict[str, Any]] = None,
+        raise_on_status: bool = True,
     ):
         if api_key is None:
             raise AuthError(
@@ -70,6 +71,8 @@ class BaseClient:
                 504,
             ],  # default 413, 429, 503
             backoff_factor=0.1,  # [0.0s, 0.2s, 0.4s, 0.8s, 1.6s, ...]
+            # if False, return the last response so that _get raises BadResponse
+            raise_on_status=raise_on_status,
         )
 
         # https://urllib3.readthedocs.io/en/stable/reference/urllib3.util.html#urllib3.util.Timeout
@@ -152,8 +155,7 @@ class BaseClient:
             )
 
         if resp.status != 200:
-            body = resp.data.decode("utf-8")
-            raise BadResponse(body, status=resp.status, body=body)
+            raise BadResponse(resp.data.decode("utf-8"), status=resp.status)
 
         if raw:
             return resp
@@ -197,7 +199,8 @@ class BaseClient:
         # https://docs.python.org/3.8/library/inspect.html#inspect.Signature
         for argname, v in inspect.signature(fn).parameters.items():
             # https://docs.python.org/3.8/library/inspect.html#inspect.Parameter
-            if argname in ["params", "raw"]:
+            # these configure the request itself and are never query params
+            if argname in ["params", "raw", "options"]:
                 continue
             if v.default != v.empty:
                 # timestamp_lt -> timestamp.lt

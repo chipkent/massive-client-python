@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, Union, Iterator
+from typing import Optional, Any, Dict, Union, Iterator, Literal, overload
 from .models import Trade, LastTrade, CryptoTrade, Sort, Order
 from urllib3 import HTTPResponse
 from datetime import datetime, date
@@ -8,6 +8,55 @@ from .models.request import RequestOptionBuilder
 
 
 class TradesClient(BaseClient):
+    @overload
+    def list_trades(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Trade]: ...
+    @overload
+    def list_trades(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_trades(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Trade], HTTPResponse]: ...
     def list_trades(
         self,
         ticker: str,
@@ -49,6 +98,31 @@ class TradesClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_last_trade(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> LastTrade: ...
+    @overload
+    def get_last_trade(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_last_trade(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[LastTrade, HTTPResponse]: ...
     def get_last_trade(
         self,
         ticker: str,
@@ -75,6 +149,34 @@ class TradesClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_last_crypto_trade(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> CryptoTrade: ...
+    @overload
+    def get_last_crypto_trade(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_last_crypto_trade(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[CryptoTrade, HTTPResponse]: ...
     def get_last_crypto_trade(
         self,
         from_: str,
