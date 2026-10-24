@@ -429,5 +429,64 @@ class SetSubscriptionsTest(FramesTest):
         self.assertEqual([call.args[1] for call in warning.call_args_list], ["bad"])
 
 
+class ResubscribeTest(FramesTest):
+    async def connected(self, *topics: str) -> WebSocketClient:
+        """A client subscribed to ``topics``, acknowledged by the server."""
+        c = self.client(subscriptions=list(topics))
+        await self.start(c)
+        await self.server.wait_for_subscriptions(set(topics))
+        return c
+
+    async def test_sends_an_acknowledged_topic_again(self) -> None:
+        c = await self.connected("T.A", "T.B")
+        n = len(self.server.connection.inbox)
+        c.resubscribe("T.A")
+        await self.wait_for_frame("subscribe", {"T.A"})
+        # a change of its own, to show nothing else was sent in between
+        c.subscribe("T.Z")
+        await self.wait_for_frame("subscribe", {"T.Z"})
+        self.assertEqual(
+            self.frames_after(n), [("subscribe", {"T.A"}), ("subscribe", {"T.Z"})]
+        )
+
+    async def test_joins_the_subscribe_message_for_new_topics(self) -> None:
+        c = await self.connected("T.A", "T.B")
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions(["T.A", "T.B", "T.C"])
+        c.resubscribe("T.A")
+        await self.wait_for_frame("subscribe", {"T.A", "T.C"})
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.A", "T.C"})])
+
+    async def test_not_sent_if_unsubscribed_first(self) -> None:
+        c = await self.connected("T.A", "T.B")
+        n = len(self.server.connection.inbox)
+        c.resubscribe("T.A")
+        c.unsubscribe("T.A")
+        await self.wait_for_frame("unsubscribe", {"T.A"})
+        c.subscribe("T.Z")
+        await self.wait_for_frame("subscribe", {"T.Z"})
+        self.assertEqual(
+            self.frames_after(n), [("unsubscribe", {"T.A"}), ("subscribe", {"T.Z"})]
+        )
+
+    async def test_topic_must_be_subscribed(self) -> None:
+        c = await self.connected("T.A")
+        n = len(self.server.connection.inbox)
+        with self.assertRaises(ValueError):
+            c.resubscribe("T.A", "T.B")
+        c.subscribe("T.Z")
+        await self.wait_for_frame("subscribe", {"T.Z"})
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.Z"})])
+
+    async def test_malformed_topics_are_skipped(self) -> None:
+        c = await self.connected("T.A", "T.B")
+        n = len(self.server.connection.inbox)
+        with mock.patch.object(websocket_module.logger, "warning") as warning:
+            c.resubscribe("bad", "T.A")
+        self.assertEqual([call.args[1] for call in warning.call_args_list], ["bad"])
+        await self.wait_for_frame("subscribe", {"T.A"})
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.A"})])
+
+
 if __name__ == "__main__":
     unittest.main()

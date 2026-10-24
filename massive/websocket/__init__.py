@@ -102,6 +102,8 @@ class WebSocketClient:
         # set_subscriptions() was called since the last round: send removals
         # first; guarded by _subs_lock
         self._removals_first = False
+        # topics resubscribe() asked to send again; guarded by _subs_lock
+        self._resend: Set[str] = set()
         # while a connection is open: its loop, and the event that wakes its
         # sender task (see _start_sender)
         self._wake: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
@@ -357,9 +359,11 @@ class WebSocketClient:
             desired = set(self.scheduled_subs)
             removals_first = self._removals_first
             self._removals_first = False
+            resend = self._resend
+            self._resend = set()
             self.schedule_resub = False
         logger.debug("reconciling: %s %s", self.subs, desired)
-        added = desired.difference(self.subs)
+        added = desired.difference(self.subs) | resend.intersection(desired)
         removed = self.subs.difference(desired)
         try:
             if removals_first:
@@ -372,6 +376,7 @@ class WebSocketClient:
             # e.g. the connection closed: try again on the next connection
             with self._subs_lock:
                 self._removals_first |= removals_first
+                self._resend |= resend
                 self.schedule_resub = True
             raise
         self.subs = desired
@@ -487,6 +492,32 @@ class WebSocketClient:
         if wake:
             self._notify()
         logger.debug("subs desired: %s", topics)
+
+    def resubscribe(self, *topics: str):
+        """
+        Send a subscribe message again for topics the client already counts
+        as subscribed, e.g. ones the server never acknowledged.
+
+        Safe to call from any thread, before or while ``connect()`` runs. The
+        topics go into the next subscribe message, together with any topics
+        being added. A topic unsubscribed before that message is sent is not
+        sent.
+
+        :param topics: Topics to send again (args). Malformed topics are
+            logged and skipped.
+        :raises ValueError: If a well-formed topic is not subscribed (or
+            scheduled to be); nothing is then sent.
+        """
+        again = {s for s, _, _ in self._parse_subscriptions(topics)}
+        with self._subs_lock:
+            unknown = again.difference(self.scheduled_subs)
+            if unknown:
+                raise ValueError(f"not subscribed: {sorted(unknown)}")
+            self._resend |= again
+            wake = self._request_resub()
+        if wake:
+            self._notify()
+        logger.debug("subs to send again: %s", again)
 
     def unsubscribe_all(self):
         """
