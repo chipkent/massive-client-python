@@ -488,5 +488,66 @@ class ResubscribeTest(FramesTest):
         self.assertEqual(self.frames_after(n), [("subscribe", {"T.A"})])
 
 
+class ReconnectTest(SubscriptionsTest):
+    async def test_changes_during_an_outage_are_kept(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+
+        # drop the connection, and hold the next one before authentication,
+        # so the client is between connections while the changes are made
+        self.server.script_auth()
+        await self.server.close_connections(code=1011)
+        await self.server.wait_for(
+            lambda: len(self.server.connections) == 2
+            and self.server.connection.api_key is not None
+        )
+        c.subscribe("T.C")
+        c.unsubscribe("T.A")
+        await self.server.connection.close(code=1011)
+
+        await self.server.wait_for_connections(2)
+        self.assertEqual(len(self.server.connections), 3)
+        await self.server.wait_for_subscriptions({"T.B", "T.C"})
+        self.assertEqual(c.scheduled_subs, {"T.B", "T.C"})
+
+    async def test_connect_again_after_close(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        task = await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        await c.close()
+        await asyncio.wait_for(task, 5)
+
+        c.subscribe("T.B")
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+
+    async def test_connect_again_after_cancel(self) -> None:
+        received = asyncio.Event()
+
+        async def processor(msgs):
+            received.set()
+
+        c = self.client(subscriptions=["T.A"])
+        task = asyncio.create_task(c.connect(processor))
+        await self.server.wait_for_subscriptions({"T.A"})
+        ws = c.websocket
+        assert ws is not None
+        self.addAsyncCleanup(ws.close)
+        # cancel once idle; see WakeUpTest.test_cancel_while_connected
+        await self.server.send_data(
+            [{"ev": "T", "sym": "A", "x": 1, "p": 1, "s": 1, "t": 1}]
+        )
+        await asyncio.wait_for(received.wait(), 5)
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=2)
+        self.assertIn(task, done)
+
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        c.subscribe("T.B")
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+
+
 if __name__ == "__main__":
     unittest.main()
