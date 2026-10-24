@@ -385,25 +385,32 @@ class WebSocketClient:
                 parsed.append((s, topic, sym))
         return parsed
 
+    def _collapse(self, scheduled: Set[str], channel: str, keep: Optional[str] = None):
+        """Unschedule the subscribed topics on exactly ``channel`` but ``keep``."""
+        # subs is replaced, never changed in place, so iterating it is safe
+        for t in list(self.subs):
+            if t != keep and t.split(".", 1)[0].strip() == channel:
+                scheduled.discard(t)
+
     def subscribe(self, *subscriptions: str):
         """
         Subscribe to given subscriptions.
 
         Safe to call from any thread, before or while ``connect()`` runs.
 
+        Subscribing to a wildcard such as ``T.*`` replaces the other topics
+        subscribed on that channel, such as ``T.AAPL`` (but not ``TX.AAPL``).
+
         :param subscriptions: Subscriptions (args)
         """
         parsed = self._parse_subscriptions(subscriptions)
         with self._subs_lock:
             scheduled = set(self.scheduled_subs)
-            for s, topic, sym in parsed:
+            for s, channel, sym in parsed:
                 scheduled.add(s)
                 # If user subs to X.*, remove other X.\w+
                 if sym == "*":
-                    for t in list(self.subs):
-                        if t.startswith(topic):
-                            scheduled.discard(t)
-
+                    self._collapse(scheduled, channel, keep=s)
             self.scheduled_subs = scheduled
             wake = self._request_resub()
         if wake:
@@ -417,19 +424,21 @@ class WebSocketClient:
 
         Safe to call from any thread, before or while ``connect()`` runs.
 
+        Unsubscribing from a wildcard such as ``T.*`` also unsubscribes the
+        other topics subscribed on that channel, such as ``T.AAPL`` (but not
+        ``TX.AAPL``).
+
         :param subscriptions: Subscriptions (args)
         """
         parsed = self._parse_subscriptions(subscriptions)
         with self._subs_lock:
             scheduled = set(self.scheduled_subs)
-            for s, topic, sym in parsed:
+            for s, channel, sym in parsed:
                 scheduled.discard(s)
 
                 # If user unsubs to X.*, remove other X.\w+
                 if sym == "*":
-                    for t in list(self.subs):
-                        if t.startswith(topic):
-                            scheduled.discard(t)
+                    self._collapse(scheduled, channel)
 
             self.scheduled_subs = scheduled
             wake = self._request_resub()

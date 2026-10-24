@@ -299,5 +299,44 @@ class SenderErrorTest(SubscriptionsTest):
             await asyncio.wait_for(task, 5)
 
 
+class WildcardTest(SubscriptionsTest):
+    async def test_subscribe_collapses_only_the_same_channel(self) -> None:
+        c = self.client(subscriptions=["A.X", "T.AAPL", "TX.AAPL"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"A.X", "T.AAPL", "TX.AAPL"})
+        c.subscribe("AM.*")  # "A" is a prefix of "AM", not the same channel
+        await self.server.wait_for_subscriptions({"A.X", "T.AAPL", "TX.AAPL", "AM.*"})
+        c.subscribe("T.*")
+        await self.server.wait_for_subscriptions({"A.X", "TX.AAPL", "AM.*", "T.*"})
+
+    async def test_collapse_leaves_topics_not_yet_subscribed(self) -> None:
+        # as before: only subscribed topics collapse
+        c = self.client(subscriptions=["T.AAPL"])
+        c.subscribe("T.*")
+        self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.*"})
+
+    async def test_unsubscribe_collapses_only_the_same_channel(self) -> None:
+        # T.AAPL after T.* (subscribing to T.AAPL first would collapse it)
+        c = self.client(subscriptions=["T.*", "T.AAPL", "TX.AAPL", "AM.X"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.*", "TX.AAPL", "AM.X"})
+        c.unsubscribe("T.*", "A.*")
+        await self.server.wait_for_subscriptions({"TX.AAPL", "AM.X"})
+
+    async def test_subscribing_to_a_subscribed_wildcard_keeps_it(self) -> None:
+        c = self.client(subscriptions=["T.*"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.*"})
+        c.subscribe("T.*", "Q.Z")
+        await self.server.wait_for_subscriptions({"T.*", "Q.Z"})
+
+    async def test_topics_are_kept_as_given(self) -> None:
+        # as before: the constructor does not collapse, and nothing is stripped
+        c = self.client(subscriptions=["T.AAPL", "T.*", " Q.X "])
+        self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.*", " Q.X "})
+        c.unsubscribe(" Q.X ")
+        self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.*"})
+
+
 if __name__ == "__main__":
     unittest.main()
