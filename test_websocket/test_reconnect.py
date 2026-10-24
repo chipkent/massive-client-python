@@ -12,7 +12,6 @@ from fake_server import FakeServer, status
 from websockets.asyncio.server import ServerConnection
 from websockets.datastructures import Headers
 from websockets.exceptions import (
-    ConnectionClosedError,
     InvalidMessage,
     InvalidStatus,
     InvalidURI,
@@ -159,7 +158,7 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(gap, d - 0.03)
 
     async def test_transient_handshake_errors_are_retried(self) -> None:
-        for code in (429, 500, 503):
+        for code in (408, 429, 500, 503):
             self.server.reject_status = code
             n = len(self.server.attempts)
             c = self.client()
@@ -300,6 +299,72 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
         await self.request_close_from_a_thread(c)
         await asyncio.wait_for(task, 2)
 
+    async def test_cancel_while_connecting_closes_the_socket(self) -> None:
+        accepted = asyncio.Event()
+        disconnected = asyncio.Event()
+
+        async def stall(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            accepted.set()
+            await reader.read()
+            disconnected.set()
+            writer.close()
+
+        server = await asyncio.start_server(stall, "127.0.0.1", 0)
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        port = server.sockets[0].getsockname()[1]
+        c = WebSocketClient(api_key="key", feed=f"127.0.0.1:{port}", secure=False)
+        task = asyncio.create_task(c.connect(ignore))
+        await asyncio.wait_for(accepted.wait(), 5)
+
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(disconnected.wait(), 2)
+
+    async def test_cancel_closes_a_connection_opened_meanwhile(self) -> None:
+        c = self.client()
+        c._close_event = asyncio.Event()
+        conn = mock.AsyncMock()
+        started = asyncio.Event()
+
+        async def handshake() -> Any:
+            started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                pass  # e.g. the handshake completed as it was cancelled
+            return conn
+
+        task = asyncio.create_task(c._open(handshake()))
+        await started.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        conn.close.assert_awaited_once()
+
+    async def test_abandoning_a_slow_attempt_does_not_wait_for_it(self) -> None:
+        conn = mock.AsyncMock()
+
+        async def handshake() -> Any:
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                # e.g. a connect on Windows that is slow to take the cancellation
+                await asyncio.sleep(0.2)
+            return conn
+
+        attempt = asyncio.ensure_future(handshake())
+        await asyncio.sleep(0)
+        start = time.monotonic()
+        await WebSocketClient._abandon(attempt, timeout=0.05)
+        self.assertLess(time.monotonic() - start, 0.15)
+        conn.close.assert_not_awaited()
+        # what it opens later is still closed
+        await asyncio.wait_for(attempt, 1)
+        await asyncio.sleep(0.01)
+        conn.close.assert_awaited_once()
+
     async def test_request_close_before_connect(self) -> None:
         c = self.client()
         c.request_close()
@@ -349,6 +414,7 @@ class TransientTest(unittest.TestCase):
         eof = InvalidMessage("did not receive a valid HTTP response")
         eof.__cause__ = EOFError("connection closed while reading HTTP status line")
         transient = [
+            status(408),
             status(429),
             status(500),
             status(503),
@@ -358,7 +424,6 @@ class TransientTest(unittest.TestCase):
             socket.gaierror(),
             TimeoutError(),
             asyncio.TimeoutError(),
-            ConnectionClosedError(None, None),
         ]
         fatal = [
             status(400),

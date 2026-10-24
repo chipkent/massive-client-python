@@ -67,12 +67,25 @@ class WebSocketClient:
         :param raw: Whether to pass raw Union[str, bytes] to user callback.
         :param verbose: Whether to log client and server status messages.
         :param subscriptions: List of subscription parameters.
-        :param max_reconnects: How many consecutive reconnect attempts may fail (the connection is refused, or ends before or after authenticating) before .connect raises the last error. The count starts over whenever a connection authenticates. None, the default, retries forever. Only transient failures are retried and the wait between attempts grows, while other errors (e.g. HTTP 4xx) are raised at once, so with the default .run is safe in a long-lived process.
+        :param max_reconnects: How many consecutive reconnect attempts may fail
+            (the connection is refused, or ends before or after authenticating)
+            before .connect raises the last error. The count starts over whenever
+            a connection authenticates. None, the default, retries forever. Only
+            transient failures are retried and the wait between attempts grows,
+            while other errors (e.g. HTTP 4xx) are raised at once, so with the
+            default .run is safe in a long-lived process.
         :param custom_json: Optional module exposing loads/dumps functions (similar to Python's json module) to be used for JSON conversions.
         :param ca_certs: Path to a CA bundle to verify TLS with. Defaults to the SSL_CERT_FILE or REQUESTS_CA_BUNDLE environment variable, then certifi.
-        :param reconnect_backoff: Seconds to wait before reconnecting after the connection ends or an attempt to connect fails. The wait doubles with each consecutive failure and gets up to 20% random jitter, but never leaves [reconnect_backoff, max_reconnect_backoff]. Defaults to 15, the minimum Massive asks clients to wait; 0 disables the wait and is meant only for tests.
-        :param max_reconnect_backoff: The longest wait between reconnect attempts, jitter included.
-        :raises ValueError: If reconnect_backoff is negative or greater than max_reconnect_backoff.
+        :param reconnect_backoff: Seconds to wait before reconnecting after the
+            connection ends or an attempt to connect fails. The wait doubles with
+            each consecutive failure and gets up to 20% random jitter, but never
+            leaves [reconnect_backoff, max_reconnect_backoff]. Defaults to 15, the
+            minimum Massive asks clients to wait; 0 disables the wait and is meant
+            only for tests.
+        :param max_reconnect_backoff: The longest wait between reconnect
+            attempts, jitter included.
+        :raises ValueError: If reconnect_backoff is negative or greater than
+            max_reconnect_backoff.
         :return: A client.
         """
         if reconnect_backoff < 0 or max_reconnect_backoff < reconnect_backoff:
@@ -114,7 +127,7 @@ class WebSocketClient:
         # topics to subscribe to again even if already subscribed
         self._resend: Set[str] = set()
         # wake-up of connect() when subscriptions change: the loop it runs
-        # on (set only while connect() runs), whether a wake-up is queued there, whether one arrived since the
+        # on, whether a wake-up is queued there, whether one arrived since the
         # last reconciliation, and how to interrupt the recv() in progress
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._wake_pending = False
@@ -153,12 +166,14 @@ class WebSocketClient:
         Connect to websocket server and run `processor(msg)` on every new `msg`.
 
         When the connection ends, whether the server closed it cleanly or not,
-        or an attempt to connect fails for a reason that may pass (the server
-        is unreachable, times out, or answers with HTTP 5xx or 429), the
-        client waits (see `reconnect_backoff`), reconnects, and subscribes
-        again to every scheduled subscription. Other errors, e.g. HTTP 4xx or
-        a TLS certificate that cannot be verified, are raised at once. It
-        returns once `close()` or `request_close()` is called.
+        or an attempt to connect fails for a reason that may pass, the client
+        waits (see `reconnect_backoff`), reconnects, and subscribes again to
+        every scheduled subscription. Such reasons are network errors (refused,
+        unreachable, timed out, a DNS lookup failure, or a TLS error other
+        than certificate verification), the connection closing during the
+        handshake, and HTTP 408, 429 or 5xx. Other errors, e.g. any other HTTP
+        4xx or a TLS certificate that cannot be verified, are raised at once.
+        It returns once `close()` or `request_close()` is called.
 
         If the server sends a `max_connections` status during the handshake
         (the account has too many connections open), `max_connections_reached`
@@ -173,7 +188,6 @@ class WebSocketClient:
             consecutive attempts fail; ConnectionClosedError if the server
             closed the last connection, even cleanly.
         """
-        # reset the wake-up state before publishing the loop to other threads
         self._woken = False
         with self._subs_lock:
             self._wake_pending = False
@@ -184,7 +198,11 @@ class WebSocketClient:
             # it returned because close was requested, which is now done
             self._close_requested.clear()
         finally:
+            # subscription changes made from now on must not wake this loop
             self._loop = None
+            with self._subs_lock:
+                self._wake_pending = False
+            self._woken = False
             self._close_event = None
             closing, self._close_task = self._close_task, None
             if closing is not None:
@@ -317,14 +335,14 @@ class WebSocketClient:
         """Whether a failed attempt to connect is worth retrying."""
         if isinstance(exc, InvalidStatus):
             status = exc.response.status_code
-            return status >= 500 or status == 429
+            return status >= 500 or status in (408, 429)
         if isinstance(exc, InvalidMessage):
             # e.g. the server closed the connection during the handshake
             return isinstance(exc.__cause__, EOFError)
         if isinstance(exc, ssl.SSLCertVerificationError):
             return False
-        # e.g. refused, unreachable, or timed out
-        return isinstance(exc, (OSError, asyncio.TimeoutError, ConnectionClosed))
+        # e.g. refused, unreachable, timed out, DNS, or another TLS error
+        return isinstance(exc, (OSError, asyncio.TimeoutError))
 
     def _reconnect_delay(self, attempt: int) -> float:
         """
@@ -350,19 +368,45 @@ class WebSocketClient:
         try:
             await asyncio.wait({attempt, closing}, return_when=asyncio.FIRST_COMPLETED)
         except BaseException:
-            attempt.cancel()
+            # e.g. connect() was cancelled: don't leave a connection open
             closing.cancel()
+            await asyncio.shield(self._abandon(attempt))
             raise
         stop = closing.done() or self._close_requested.is_set()
         closing.cancel()
         if not stop:
             return attempt.result()
-        # close was requested: abandon the attempt, or close what it opened
-        attempt.cancel()
-        await asyncio.wait({attempt})
-        if not attempt.cancelled() and attempt.exception() is None:
-            await attempt.result().close()
+        await self._abandon(attempt)
         return None
+
+    @staticmethod
+    async def _abandon(
+        attempt: "asyncio.Future[ClientConnection]", timeout: float = 1.0
+    ):
+        """Cancel an attempt to connect, or close the connection it opened."""
+        attempt.cancel()
+        await asyncio.wait({attempt}, timeout=timeout)
+        if not attempt.done():
+            # it has not taken the cancellation yet (e.g. a pending connect on
+            # Windows): don't wait for it, but close whatever it opens
+            attempt.add_done_callback(WebSocketClient._close_opened)
+            return
+        if WebSocketClient._opened(attempt):
+            await attempt.result().close()
+
+    # tasks closing connections that abandoned attempts opened late
+    _late_closes: Set["asyncio.Future[None]"] = set()
+
+    @staticmethod
+    def _opened(attempt: "asyncio.Future[ClientConnection]") -> bool:
+        return not attempt.cancelled() and attempt.exception() is None
+
+    @staticmethod
+    def _close_opened(attempt: "asyncio.Future[ClientConnection]"):
+        if WebSocketClient._opened(attempt):
+            task = asyncio.ensure_future(attempt.result().close())
+            WebSocketClient._late_closes.add(task)
+            task.add_done_callback(WebSocketClient._late_closes.discard)
 
     async def _wait_for_close(self, timeout: float) -> bool:
         """Wait up to `timeout` seconds; return whether close was requested."""

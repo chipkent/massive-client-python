@@ -104,13 +104,16 @@ class FakeServerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejected_handshake_is_retried(self) -> None:
         self.server.reject_handshakes = True
-        c = self.client(subscriptions=["T.AAPL"])
-        task = asyncio.create_task(c.connect(lambda msgs: asyncio.sleep(0)))
-        await asyncio.sleep(0.2)
+        c = self.client(subscriptions=["T.AAPL"], reconnect_backoff=0.01)
+        with self.assertLogs("WebSocketClient", level="WARNING") as logs:
+            task = asyncio.create_task(c.connect(lambda msgs: asyncio.sleep(0)))
+            # each refused attempt is logged before the next one
+            await self.server.wait_for(lambda: len(logs.records) >= 2)
         self.assertEqual(self.server.connections, [])
-        task.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await task
+        self.server.reject_handshakes = False
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        await c.close()
+        await asyncio.wait_for(task, 5)
 
 
 class ConcurrentClientsTest(unittest.IsolatedAsyncioTestCase):

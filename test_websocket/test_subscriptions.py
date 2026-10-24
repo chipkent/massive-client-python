@@ -148,6 +148,56 @@ class WakeUpTest(SubscriptionsTest):
         c.subscribe("T.MSFT")  # connect()'s loop is closed
         self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.MSFT"})
 
+    async def test_subscribe_after_connect_returned(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"])
+        task = await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        await c.close()
+        await asyncio.wait_for(task, 5)
+        self.assertIsNone(c._loop)
+        # this loop is still running, but connect() no longer reads from it:
+        # nothing may be queued on it
+        loop = asyncio.get_running_loop()
+        queued: List[Any] = []
+        original = loop.call_soon_threadsafe
+
+        def record(*args: Any, **kwargs: Any) -> Any:
+            queued.append(args[0])  # the callback
+            return original(*args, **kwargs)
+
+        setattr(loop, "call_soon_threadsafe", record)
+        self.addCleanup(delattr, loop, "call_soon_threadsafe")
+        c.subscribe("T.MSFT")
+        await asyncio.to_thread(c.unsubscribe, "T.AAPL")
+        # (to_thread() itself queues the thread's result on the loop)
+        self.assertNotIn(c._wake_up, queued)
+        self.assertFalse(c._wake_pending)
+        self.assertEqual(c.scheduled_subs, {"T.MSFT"})
+
+    async def test_cancel_while_connected_returns_promptly(self) -> None:
+        c = self.client()
+        task = asyncio.create_task(c.connect(ignore))
+        c.subscribe("T.AAPL")
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        # let the client read the acknowledgement and wait in recv() again
+        await asyncio.sleep(0.1)
+        ws = c.websocket
+        assert ws is not None
+        self.addAsyncCleanup(ws.close)
+
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=2)
+        self.assertIn(task, done, "connect() did not finish after cancel()")
+        self.assertTrue(task.cancelled())
+        # no recv() left running, e.g. the one _recv() starts on Python 3.10
+        names = [
+            getattr(t.get_coro(), "__qualname__", "")
+            for t in asyncio.all_tasks()
+            if not t.done()
+        ]
+        self.assertEqual([n for n in names if n.endswith(".recv")], [])
+        self.assertIsNone(c._loop)
+
     async def test_wake_up_while_recv_times_out(self) -> None:
         # a wake-up that lands while the recv() timeout is expiring must not
         # try to reschedule it
