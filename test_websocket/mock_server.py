@@ -137,8 +137,14 @@ async def mock_server(websocket):
                 )
 
 
+def process_request(connection, request):
+    if request.path.startswith("/404/"):
+        # emulate the server refusing the handshake
+        return connection.respond(404, "Not Found\n")
+
+
 async def run_mock_server():
-    async with serve(mock_server, "localhost", port):
+    async with serve(mock_server, "localhost", port, process_request=process_request):
         await asyncio.Future()  # run forever
 
 
