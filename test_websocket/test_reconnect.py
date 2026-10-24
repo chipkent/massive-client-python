@@ -1,9 +1,10 @@
 import asyncio
 import socket
 import ssl
+import threading
 import time
 import unittest
-from typing import Any, List, Optional
+from typing import Any, Generator, List, Optional
 from unittest import mock
 
 from fake_server import FakeServer
@@ -28,7 +29,7 @@ MAX_BACKOFF = 0.05
 class TimedServer(FakeServer):
     """A FakeServer that records when each handshake was attempted."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.attempts: List[float] = []
         # if set, answer handshakes with this HTTP status
@@ -45,6 +46,38 @@ class TimedServer(FakeServer):
 
 async def ignore(msgs: Any) -> None:
     pass
+
+
+class FakeConnect:
+    """
+    Stands in for websockets' connect(): each attempt waits for `opened` and
+    then returns `conn`, even if it was cancelled meanwhile, like a handshake
+    that completes as it is cancelled.
+    """
+
+    def __init__(self) -> None:
+        self.conn = mock.AsyncMock()
+        self.attempts = 0
+        self.started = asyncio.Event()
+        self.opened = asyncio.Event()
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        fake = self
+
+        class Attempt:
+            def __await__(self) -> Generator[Any, None, Any]:
+                return fake._attempt().__await__()
+
+        return Attempt()
+
+    async def _attempt(self) -> Any:
+        self.attempts += 1
+        self.started.set()
+        try:
+            await self.opened.wait()
+        except asyncio.CancelledError:
+            pass
+        return self.conn
 
 
 class ReconnectTest(unittest.IsolatedAsyncioTestCase):
@@ -247,6 +280,131 @@ class ReconnectTest(unittest.IsolatedAsyncioTestCase):
 
         await c.close()
         await asyncio.wait_for(task, 5)
+
+    async def request_close_from_a_thread(self, c: WebSocketClient):
+        thread = threading.Thread(target=c.request_close)
+        thread.start()
+        await asyncio.get_running_loop().run_in_executor(None, thread.join)
+
+    async def test_request_close_from_another_thread(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"])
+        task = self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        # reconnects after a clean close, until request_close()
+        await self.server.close_connections(code=1000)
+        await self.server.wait_for_connections(2)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+
+        await self.request_close_from_a_thread(c)
+        await asyncio.wait_for(task, 2)
+        await self.server.wait_for(lambda: not self.server.open_connections)
+        self.assertEqual(len(self.server.connections), 2)
+
+    async def test_request_close_while_waiting_to_reconnect(self) -> None:
+        c = self.client(reconnect_backoff=60, max_reconnect_backoff=60)
+        task = self.start(c)
+        await self.server.wait_for_connections(1)
+        await self.server.drop_connections()
+
+        await self.request_close_from_a_thread(c)
+        await asyncio.wait_for(task, 2)
+        self.assertEqual(len(self.server.attempts), 1)
+
+    async def test_request_close_while_connecting(self) -> None:
+        # a server that accepts TCP connections but never answers the handshake
+        accepted = asyncio.Event()
+
+        async def stall(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            accepted.set()
+            await reader.read()
+            writer.close()
+
+        server = await asyncio.start_server(stall, "127.0.0.1", 0)
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        port = server.sockets[0].getsockname()[1]
+        c = WebSocketClient(api_key="key", feed=f"127.0.0.1:{port}", secure=False)
+        task = self.start(c)
+        await asyncio.wait_for(accepted.wait(), 5)
+
+        await self.request_close_from_a_thread(c)
+        await asyncio.wait_for(task, 2)
+
+    async def test_cancel_while_connecting_closes_the_socket(self) -> None:
+        accepted = asyncio.Event()
+        disconnected = asyncio.Event()
+
+        async def stall(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            accepted.set()
+            await reader.read()
+            disconnected.set()
+            writer.close()
+
+        server = await asyncio.start_server(stall, "127.0.0.1", 0)
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        port = server.sockets[0].getsockname()[1]
+        c = WebSocketClient(api_key="key", feed=f"127.0.0.1:{port}", secure=False)
+        task = asyncio.create_task(c.connect(ignore))
+        await asyncio.wait_for(accepted.wait(), 5)
+
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(disconnected.wait(), 2)
+
+    async def test_cancel_closes_a_connection_opened_meanwhile(self) -> None:
+        fake = FakeConnect()
+        with mock.patch.object(ws_module, "connect", fake):
+            task = asyncio.create_task(self.client().connect(ignore))
+            await asyncio.wait_for(fake.started.wait(), 5)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(fake.attempts, 1)
+        fake.conn.close.assert_awaited_once()
+
+    async def test_no_attempt_after_request_close(self) -> None:
+        fake = FakeConnect()
+        with mock.patch.object(ws_module, "connect", fake):
+            c = self.client()
+            task = asyncio.create_task(c.connect(ignore))
+            await asyncio.wait_for(fake.started.wait(), 5)
+            c.request_close()
+            # the handshake completes as the close is requested
+            fake.opened.set()
+            await asyncio.wait_for(task, 5)
+            # give a stray attempt every chance to start
+            for _ in range(20):
+                await asyncio.sleep(0)
+        self.assertEqual(fake.attempts, 1)
+        fake.conn.close.assert_awaited_once()
+        fake.conn.recv.assert_not_awaited()
+
+    async def test_request_close_before_connect(self) -> None:
+        c = self.client()
+        c.request_close()
+        await asyncio.wait_for(c.connect(ignore), 2)
+        self.assertEqual(self.server.attempts, [])
+
+        # the request applied to that connect() only
+        task = self.start(c)
+        await self.server.wait_for_connections(1)
+        c.request_close()
+        await asyncio.wait_for(task, 2)
+
+    async def test_close_request_stays_pending_if_connect_raises(self) -> None:
+        c = self.client()
+        c.request_close()
+        with self.assertRaises(ValueError):
+            await c.connect(ignore, compression="x")
+        # the next connect() returns because of it, which consumes it
+        await asyncio.wait_for(c.connect(ignore), 2)
+        self.assertEqual(self.server.attempts, [])
+        task = self.start(c)
+        await self.server.wait_for_connections(1)
+        c.request_close()
+        await asyncio.wait_for(task, 2)
 
 
 class TransientTest(unittest.TestCase):
