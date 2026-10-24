@@ -99,6 +99,9 @@ class WebSocketClient:
         # friends change on the caller's thread while connect() reads them on
         # the event loop's thread
         self._subs_lock = threading.Lock()
+        # set_subscriptions() was called since the last round: send removals
+        # first; guarded by _subs_lock
+        self._removals_first = False
         # while a connection is open: its loop, and the event that wakes its
         # sender task (see _start_sender)
         self._wake: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
@@ -352,14 +355,23 @@ class WebSocketClient:
             if not self.schedule_resub:
                 return
             desired = set(self.scheduled_subs)
+            removals_first = self._removals_first
+            self._removals_first = False
             self.schedule_resub = False
         logger.debug("reconciling: %s %s", self.subs, desired)
+        added = desired.difference(self.subs)
+        removed = self.subs.difference(desired)
         try:
-            await self._subscribe(desired.difference(self.subs), ws)
-            await self._unsubscribe(self.subs.difference(desired), ws)
+            if removals_first:
+                await self._unsubscribe(removed, ws)
+                await self._subscribe(added, ws)
+            else:
+                await self._subscribe(added, ws)
+                await self._unsubscribe(removed, ws)
         except BaseException:
             # e.g. the connection closed: try again on the next connection
             with self._subs_lock:
+                self._removals_first |= removals_first
                 self.schedule_resub = True
             raise
         self.subs = desired
@@ -446,6 +458,35 @@ class WebSocketClient:
             self._notify()
         for s, _, _ in parsed:
             logger.debug("sub undesired: %s", s)
+
+    def set_subscriptions(self, desired: Iterable[str]):
+        """
+        Replace the subscriptions with ``desired``, in one step.
+
+        Safe to call from any thread, before or while ``connect()`` runs. The
+        client then sends at most one unsubscribe message, for the topics no
+        longer desired, followed by at most one subscribe message, for the new
+        ones. Topics in both the old and the new set are left alone. Wildcards
+        such as ``T.*`` are ordinary topics here: nothing collapses.
+
+        Unlike after ``subscribe()`` and ``unsubscribe()``, removals go first,
+        so a client at the server's subscription limit can swap topics; if
+        those methods were also called since the last update was sent, the
+        combined update sends removals first too. As a result, data that a
+        removed and an added topic both cover (e.g. ``T.AAPL`` replaced by
+        ``T.*``) is not delivered between the two messages.
+
+        :param desired: Every topic to be subscribed to afterwards, e.g.
+            ``["T.AAPL", "Q.*"]``. Malformed topics are logged and skipped.
+        """
+        topics = {s for s, _, _ in self._parse_subscriptions(desired)}
+        with self._subs_lock:
+            self.scheduled_subs = topics
+            self._removals_first = True
+            wake = self._request_resub()
+        if wake:
+            self._notify()
+        logger.debug("subs desired: %s", topics)
 
     def unsubscribe_all(self):
         """

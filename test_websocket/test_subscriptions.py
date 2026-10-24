@@ -3,7 +3,7 @@ import json
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Tuple
 from unittest import mock
 
 from fake_server import FakeServer
@@ -336,6 +336,97 @@ class WildcardTest(SubscriptionsTest):
         self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.*", " Q.X "})
         c.unsubscribe(" Q.X ")
         self.assertEqual(c.scheduled_subs, {"T.AAPL", "T.*"})
+
+
+class FramesTest(SubscriptionsTest):
+    """Tests that check the exact subscribe and unsubscribe frames sent."""
+
+    def frames_after(self, n: int) -> List[Tuple[str, Set[str]]]:
+        """The frames the server received after its first ``n`` messages."""
+        return [
+            (m["action"], set(m["params"].split(",")))
+            for m in self.server.connection.inbox[n:]
+        ]
+
+    async def wait_for_frame(self, action: str, topics: Set[str]):
+        await self.server.wait_for_message(
+            lambda m: m.get("action") == action
+            and set(m["params"].split(",")) == topics
+        )
+
+
+class SetSubscriptionsTest(FramesTest):
+    async def test_one_frame_per_action(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B", "T.C", "Q.*"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B", "T.C", "Q.*"})
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions(["T.B", "T.C", "T.D", "T.E"])
+        self.assertEqual(c.scheduled_subs, {"T.B", "T.C", "T.D", "T.E"})
+        await self.wait_for_frame("subscribe", {"T.D", "T.E"})
+        self.assertEqual(
+            self.frames_after(n),
+            [("unsubscribe", {"T.A", "Q.*"}), ("subscribe", {"T.D", "T.E"})],
+        )
+        await self.server.wait_for_subscriptions({"T.B", "T.C", "T.D", "T.E"})
+
+    async def test_subscribe_and_unsubscribe_send_additions_first(self) -> None:
+        # as before
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        n = len(self.server.connection.inbox)
+        c.subscribe("T.B")
+        c.unsubscribe("T.A")
+        await self.wait_for_frame("unsubscribe", {"T.A"})
+        self.assertEqual(
+            self.frames_after(n), [("subscribe", {"T.B"}), ("unsubscribe", {"T.A"})]
+        )
+
+    async def test_combined_update_sends_removals_first(self) -> None:
+        c = self.client(subscriptions=["T.A", "T.B"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+        n = len(self.server.connection.inbox)
+        c.subscribe("T.C")
+        c.set_subscriptions(["T.B", "T.C", "T.D"])
+        await self.wait_for_frame("subscribe", {"T.C", "T.D"})
+        self.assertEqual(
+            self.frames_after(n),
+            [("unsubscribe", {"T.A"}), ("subscribe", {"T.C", "T.D"})],
+        )
+
+    async def test_unchanged_set_sends_nothing(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        n = len(self.server.connection.inbox)
+        c.set_subscriptions({"T.A"})
+        # a change of its own, to show nothing was sent before it
+        c.subscribe("T.Z")
+        await self.wait_for_frame("subscribe", {"T.Z"})
+        self.assertEqual(self.frames_after(n), [("subscribe", {"T.Z"})])
+
+    async def test_wildcards_do_not_collapse(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        c.set_subscriptions(["T.A", "T.*"])
+        await self.server.wait_for_subscriptions({"T.A", "T.*"})
+
+    async def test_before_connect(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        c.set_subscriptions(["T.B", "T.*"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.B", "T.*"})
+        self.assertEqual(self.frames_after(1), [("subscribe", {"T.B", "T.*"})])
+
+    async def test_malformed_topics_are_skipped(self) -> None:
+        c = self.client(subscriptions=["T.Z"])
+        with mock.patch.object(websocket_module.logger, "warning") as warning:
+            c.set_subscriptions(["T.A", "bad", "T.B"])
+        self.assertEqual(c.scheduled_subs, {"T.A", "T.B"})
+        self.assertEqual([call.args[1] for call in warning.call_args_list], ["bad"])
 
 
 if __name__ == "__main__":

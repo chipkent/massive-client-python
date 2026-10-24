@@ -35,6 +35,11 @@ Unsubscribe
 .. automethod:: massive.WebSocketClient.unsubscribe
 
 ============================
+Set subscriptions
+============================
+.. automethod:: massive.WebSocketClient.set_subscriptions
+
+============================
 Close
 ============================
 .. automethod:: massive.WebSocketClient.close
