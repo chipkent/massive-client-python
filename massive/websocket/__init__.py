@@ -1,11 +1,13 @@
 import os
 from collections import Counter
 from enum import Enum
-from typing import Optional, Union, List, Set, Callable, Awaitable, Any
+from typing import Optional, Union, List, Set, Callable, Awaitable, Any, TypeVar, cast
 import logging
 import json
+import functools
 import asyncio
 import ssl
+import threading
 import time
 from .models import *
 from websockets.asyncio.client import connect, ClientConnection
@@ -21,6 +23,19 @@ logger = get_logger("WebSocketClient")
 # Status messages that mean things are working. Any other status (e.g. "error",
 # "max_connections", "slow_consumer", "force_disconnect") is logged as a warning.
 OK_STATUSES = {"connected", "auth_success", "success"}
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _changes_subscriptions(method: _F) -> _F:
+    # runs a WebSocketClient method that changes scheduled_subs under the
+    # client's lock, so it is safe to call from any thread
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._subs_lock:
+            return method(self, *args, **kwargs)
+
+    return cast(_F, wrapper)
 
 
 class WebSocketClient:
@@ -78,6 +93,10 @@ class WebSocketClient:
             subscriptions = []
         self.scheduled_subs: Set[str] = set(subscriptions)
         self.schedule_resub = True
+        # guards scheduled_subs and schedule_resub, which subscribe(),
+        # unsubscribe() and unsubscribe_all() change on the caller's thread
+        # while connect() reads them
+        self._subs_lock = threading.Lock()
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -137,16 +156,16 @@ class WebSocketClient:
                 self._flush_server_errors(force=True)
                 while True:
                     if self.schedule_resub:
-                        logger.debug(
-                            "reconciling: %s %s", self.subs, self.scheduled_subs
-                        )
-                        new_subs = self.scheduled_subs.difference(self.subs)
+                        # a change made from here on sets schedule_resub again
+                        with self._subs_lock:
+                            desired = set(self.scheduled_subs)
+                            self.schedule_resub = False
+                        logger.debug("reconciling: %s %s", self.subs, desired)
+                        new_subs = desired.difference(self.subs)
                         await self._subscribe(new_subs)
-                        old_subs = self.subs.difference(self.scheduled_subs)
+                        old_subs = self.subs.difference(desired)
                         await self._unsubscribe(old_subs)
-                        self.subs = self.scheduled_subs
-                        self.subs = set(self.scheduled_subs)
-                        self.schedule_resub = False
+                        self.subs = desired
 
                     try:
                         cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
@@ -274,9 +293,10 @@ class WebSocketClient:
 
         return split
 
+    @_changes_subscriptions
     def subscribe(self, *subscriptions: str):
         """
-        Subscribe to given subscriptions.
+        Subscribe to given subscriptions. Safe to call from any thread.
 
         :param subscriptions: Subscriptions (args)
         """
@@ -294,9 +314,10 @@ class WebSocketClient:
 
         self.schedule_resub = True
 
+    @_changes_subscriptions
     def unsubscribe(self, *subscriptions: str):
         """
-        Unsubscribe from given subscriptions.
+        Unsubscribe from given subscriptions. Safe to call from any thread.
 
         :param subscriptions: Subscriptions (args)
         """
@@ -315,9 +336,10 @@ class WebSocketClient:
 
         self.schedule_resub = True
 
+    @_changes_subscriptions
     def unsubscribe_all(self):
         """
-        Unsubscribe from all subscriptions.
+        Unsubscribe from all subscriptions. Safe to call from any thread.
         """
         self.scheduled_subs = set()
         self.schedule_resub = True
