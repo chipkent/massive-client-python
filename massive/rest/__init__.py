@@ -66,6 +66,7 @@ class RESTClient(
         ca_certs: Optional[str] = None,
         proxy: Optional[str] = None,
         connection_pool_kw: Optional[Dict[str, Any]] = None,
+        raise_on_status: bool = True,
     ):
         """
         :param maxsize: Connections kept open per host, for reuse across threads.
@@ -75,6 +76,9 @@ class RESTClient(
             Environment proxy variables (HTTPS_PROXY etc.) are not used.
         :param connection_pool_kw: Other urllib3 PoolManager options. They override
             the client's defaults.
+        :param raise_on_status: When a retried status (413, 429, 499, 500, 502, 503,
+            504) is still returned after the last retry: if True, urllib3 raises
+            MaxRetryError; if False, the client raises BadResponse with that status.
         """
         # resolve once, so the main and vx clients share it and warn only once
         ca_certs = ca_certs or ca_bundle_path(logger)
@@ -93,6 +97,7 @@ class RESTClient(
             ca_certs=ca_certs,
             proxy=proxy,
             connection_pool_kw=connection_pool_kw,
+            raise_on_status=raise_on_status,
         )
         self.vx = VXClient(
             api_key=api_key,
@@ -109,4 +114,5 @@ class RESTClient(
             ca_certs=ca_certs,
             proxy=proxy,
             connection_pool_kw=connection_pool_kw,
+            raise_on_status=raise_on_status,
         )

@@ -38,6 +38,7 @@ class BaseClient:
         ca_certs: Optional[str] = None,
         proxy: Optional[str] = None,
         connection_pool_kw: Optional[Dict[str, Any]] = None,
+        raise_on_status: bool = True,
     ):
         if api_key is None:
             raise AuthError(
@@ -70,6 +71,8 @@ class BaseClient:
                 504,
             ],  # default 413, 429, 503
             backoff_factor=0.1,  # [0.0s, 0.2s, 0.4s, 0.8s, 1.6s, ...]
+            # if False, return the last response so that _get raises BadResponse
+            raise_on_status=raise_on_status,
         )
 
         # https://urllib3.readthedocs.io/en/stable/reference/urllib3.util.html#urllib3.util.Timeout
