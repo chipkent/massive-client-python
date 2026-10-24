@@ -152,7 +152,7 @@ class BaseClient:
             )
 
         if resp.status != 200:
-            raise BadResponse(resp.data.decode("utf-8"))
+            raise BadResponse(resp.data.decode("utf-8"), status=resp.status)
 
         if raw:
             return resp
