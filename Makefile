@@ -27,6 +27,9 @@ style:
 ## Check static types
 static:
 	poetry run mypy massive test_* examples
+	@# From test_rest/, massive resolves to the installed package, as it does
+	@# for users, so this also fails if the package stops shipping py.typed.
+	cd test_rest && poetry run mypy --strict typing_consumer.py
 
 ## Check code style and static types
 lint: style static
