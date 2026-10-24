@@ -168,7 +168,7 @@ class AggsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[PreviousCloseAgg, HTTPResponse]:
+    ) -> Union[List[PreviousCloseAgg], HTTPResponse]:
         """
         Get the previous day's open, high, low, and close (OHLC) for the specified stock ticker.
 
@@ -176,7 +176,7 @@ class AggsClient(BaseClient):
         :param adjusted: Whether or not the results are adjusted for splits. By default, results are adjusted. Set this to false to get results that are NOT adjusted for splits.
         :param params: Any additional query params
         :param raw: Return raw object instead of results object
-        :return: Previous close aggregate
+        :return: List of previous close aggregates (the API returns a one-element list)
         """
         url = f"/v2/aggs/ticker/{ticker}/prev"
 

@@ -93,7 +93,7 @@ class VXClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[IPOListing], HTTPResponse]:
+    ) -> Union[Iterator[IPOListing], HTTPResponse]:
         """
         Retrieve upcoming or historical IPOs.
 
@@ -108,7 +108,7 @@ class VXClient(BaseClient):
         :param params: Additional query params.
         :param raw: Return raw HTTPResponse object if True, else return List[IPOListing].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of IPOListing objects or HTTPResponse if raw=True.
+        :return: An iterator of IPOListing objects or HTTPResponse if raw=True.
         """
         url = "/vX/reference/ipos"
 
