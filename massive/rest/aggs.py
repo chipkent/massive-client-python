@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union, Iterator
+from typing import Optional, Any, Dict, List, Union, Iterator, Literal, overload
 from .models import (
     Agg,
     GroupedDailyAgg,
@@ -15,6 +15,52 @@ from .models.request import RequestOptionBuilder
 
 
 class AggsClient(BaseClient):
+    @overload
+    def list_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Agg]: ...
+    @overload
+    def list_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Agg], HTTPResponse]: ...
     def list_aggs(
         self,
         ticker: str,
@@ -60,6 +106,52 @@ class AggsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[Agg]: ...
+    @overload
+    def get_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_aggs(
+        self,
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[Agg], HTTPResponse]: ...
     def get_aggs(
         self,
         ticker: str,
@@ -106,6 +198,44 @@ class AggsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_grouped_daily_aggs(
+        self,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        locale: str = "us",
+        market_type: str = "stocks",
+        include_otc: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[GroupedDailyAgg]: ...
+    @overload
+    def get_grouped_daily_aggs(
+        self,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        locale: str = "us",
+        market_type: str = "stocks",
+        include_otc: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_grouped_daily_aggs(
+        self,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        locale: str = "us",
+        market_type: str = "stocks",
+        include_otc: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[GroupedDailyAgg], HTTPResponse]: ...
+
     # TODO: next breaking change release move "market_type" to be 2nd mandatory
     # param
     def get_grouped_daily_aggs(
@@ -139,6 +269,37 @@ class AggsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_daily_open_close_agg(
+        self,
+        ticker: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> DailyOpenCloseAgg: ...
+    @overload
+    def get_daily_open_close_agg(
+        self,
+        ticker: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_daily_open_close_agg(
+        self,
+        ticker: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[DailyOpenCloseAgg, HTTPResponse]: ...
     def get_daily_open_close_agg(
         self,
         ticker: str,
@@ -168,6 +329,40 @@ class AggsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_daily_open_close_crypto(
+        self,
+        from_: str,
+        to: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> DailyOpenCloseCrypto: ...
+    @overload
+    def get_daily_open_close_crypto(
+        self,
+        from_: str,
+        to: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_daily_open_close_crypto(
+        self,
+        from_: str,
+        to: str,
+        date: Union[str, date],
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[DailyOpenCloseCrypto, HTTPResponse]: ...
     def get_daily_open_close_crypto(
         self,
         # "from" is a keyword in python https://www.w3schools.com/python/python_ref_keywords.asp
@@ -200,6 +395,26 @@ class AggsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_previous_close_agg(
+        self,
+        ticker: str,
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[PreviousCloseAgg]: ...
+    @overload
+    def get_previous_close_agg(
+        self,
+        ticker: str,
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
     def get_previous_close_agg(
         self,
         ticker: str,
@@ -207,7 +422,15 @@ class AggsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[PreviousCloseAgg, HTTPResponse]:
+    ) -> Union[List[PreviousCloseAgg], HTTPResponse]: ...
+    def get_previous_close_agg(
+        self,
+        ticker: str,
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[PreviousCloseAgg], HTTPResponse]:
         """
         Get the previous day's open, high, low, and close (OHLC) for the specified stock ticker.
 
@@ -215,7 +438,7 @@ class AggsClient(BaseClient):
         :param adjusted: Whether or not the results are adjusted for splits. By default, results are adjusted. Set this to false to get results that are NOT adjusted for splits.
         :param params: Any additional query params
         :param raw: Return raw object instead of results object
-        :return: Previous close aggregate
+        :return: List of previous close aggregates (the API returns a one-element list)
         """
         url = f"/v2/aggs/ticker/{ticker}/prev"
 

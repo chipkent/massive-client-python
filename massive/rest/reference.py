@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union, Iterator
+from typing import Optional, Any, Dict, List, Union, Iterator, Literal, overload
 from .models import (
     MarketHoliday,
     MarketStatus,
@@ -44,6 +44,18 @@ from .models.request import RequestOptionBuilder
 
 
 class MarketsClient(BaseClient):
+    @overload
+    def get_market_holidays(
+        self, params: Optional[Dict[str, Any]] = None, raw: Literal[False] = False
+    ) -> List[MarketHoliday]: ...
+    @overload
+    def get_market_holidays(
+        self, params: Optional[Dict[str, Any]] = None, *, raw: Literal[True]
+    ) -> HTTPResponse: ...
+    @overload
+    def get_market_holidays(
+        self, params: Optional[Dict[str, Any]] = None, raw: bool = False
+    ) -> Union[List[MarketHoliday], HTTPResponse]: ...
     def get_market_holidays(
         self, params: Optional[Dict[str, Any]] = None, raw: bool = False
     ) -> Union[List[MarketHoliday], HTTPResponse]:
@@ -64,6 +76,18 @@ class MarketsClient(BaseClient):
             result_key="",
         )
 
+    @overload
+    def get_market_status(
+        self, params: Optional[Dict[str, Any]] = None, raw: Literal[False] = False
+    ) -> MarketStatus: ...
+    @overload
+    def get_market_status(
+        self, params: Optional[Dict[str, Any]] = None, *, raw: Literal[True]
+    ) -> HTTPResponse: ...
+    @overload
+    def get_market_status(
+        self, params: Optional[Dict[str, Any]] = None, raw: bool = False
+    ) -> Union[MarketStatus, HTTPResponse]: ...
     def get_market_status(
         self, params: Optional[Dict[str, Any]] = None, raw: bool = False
     ) -> Union[MarketStatus, HTTPResponse]:
@@ -82,6 +106,7 @@ class MarketsClient(BaseClient):
 
 
 class TickersClient(BaseClient):
+    @overload
     def list_tickers(
         self,
         ticker: Optional[str] = None,
@@ -92,7 +117,76 @@ class TickersClient(BaseClient):
         type: Optional[str] = None,
         market: Optional[str] = None,
         exchange: Optional[str] = None,
-        cusip: Optional[int] = None,
+        cusip: Optional[Union[int, str]] = None,
+        cik: Optional[int] = None,
+        date: Optional[str] = None,
+        active: Optional[bool] = None,
+        search: Optional[str] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = "ticker",
+        order: Optional[Union[str, Order]] = "asc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Ticker]: ...
+    @overload
+    def list_tickers(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        type: Optional[str] = None,
+        market: Optional[str] = None,
+        exchange: Optional[str] = None,
+        cusip: Optional[Union[int, str]] = None,
+        cik: Optional[int] = None,
+        date: Optional[str] = None,
+        active: Optional[bool] = None,
+        search: Optional[str] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = "ticker",
+        order: Optional[Union[str, Order]] = "asc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_tickers(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        type: Optional[str] = None,
+        market: Optional[str] = None,
+        exchange: Optional[str] = None,
+        cusip: Optional[Union[int, str]] = None,
+        cik: Optional[int] = None,
+        date: Optional[str] = None,
+        active: Optional[bool] = None,
+        search: Optional[str] = None,
+        limit: Optional[int] = 10,
+        sort: Optional[Union[str, Sort]] = "ticker",
+        order: Optional[Union[str, Order]] = "asc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Ticker], HTTPResponse]: ...
+    def list_tickers(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        type: Optional[str] = None,
+        market: Optional[str] = None,
+        exchange: Optional[str] = None,
+        cusip: Optional[Union[int, str]] = None,
         cik: Optional[int] = None,
         date: Optional[str] = None,
         active: Optional[bool] = None,
@@ -115,7 +209,7 @@ class TickersClient(BaseClient):
         :param type: Specify the type of the tickers. Find the types that we support via our Ticker Types API. Defaults to empty string which queries all types.
         :param market: Filter by market type. By default all markets are included.
         :param exchange: Specify the assets primary exchange Market Identifier Code (MIC) according to ISO 10383. Defaults to empty string which queries all exchanges.
-        :param cusip: Specify the CUSIP code of the asset you want to search for. Find more information about CUSIP codes at their website. Defaults to empty string which queries all CUSIPs.
+        :param cusip: Specify the CUSIP code of the asset you want to search for. The API treats a CUSIP as a string, so pass a string such as "037833100": an int drops leading zeros and cannot hold the letters some CUSIPs contain. An int is still accepted for backward compatibility. Find more information about CUSIP codes at their website. Defaults to empty string which queries all CUSIPs.
         :param cik: Specify the CIK of the asset you want to search for. Find more information about CIK codes at their website. Defaults to empty string which queries all CIKs.
         :param date: Specify a point in time to retrieve tickers available on that date. Defaults to the most recent available date.
         :param search: Search for terms within the ticker and/or company name.
@@ -137,6 +231,34 @@ class TickersClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_ticker_details(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> TickerDetails: ...
+    @overload
+    def get_ticker_details(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_ticker_details(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[TickerDetails, HTTPResponse]: ...
     def get_ticker_details(
         self,
         ticker: Optional[str] = None,
@@ -165,6 +287,34 @@ class TickersClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_ticker_events(
+        self,
+        ticker: str,
+        types: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> TickerChangeResults: ...
+    @overload
+    def get_ticker_events(
+        self,
+        ticker: str,
+        types: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_ticker_events(
+        self,
+        ticker: str,
+        types: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[TickerChangeResults, HTTPResponse]: ...
     def get_ticker_events(
         self,
         ticker: str,
@@ -191,6 +341,67 @@ class TickersClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_ticker_news(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        published_utc: Optional[str] = None,
+        published_utc_lt: Optional[str] = None,
+        published_utc_lte: Optional[str] = None,
+        published_utc_gt: Optional[str] = None,
+        published_utc_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[TickerNews]: ...
+    @overload
+    def list_ticker_news(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        published_utc: Optional[str] = None,
+        published_utc_lt: Optional[str] = None,
+        published_utc_lte: Optional[str] = None,
+        published_utc_gt: Optional[str] = None,
+        published_utc_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_ticker_news(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        published_utc: Optional[str] = None,
+        published_utc_lt: Optional[str] = None,
+        published_utc_lte: Optional[str] = None,
+        published_utc_gt: Optional[str] = None,
+        published_utc_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[TickerNews], HTTPResponse]: ...
     def list_ticker_news(
         self,
         ticker: Optional[str] = None,
@@ -232,6 +443,34 @@ class TickersClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_ticker_types(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[TickerTypes]: ...
+    @overload
+    def get_ticker_types(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_ticker_types(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[TickerTypes], HTTPResponse]: ...
     def get_ticker_types(
         self,
         asset_class: Optional[Union[str, AssetClass]] = None,
@@ -260,6 +499,31 @@ class TickersClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_related_companies(
+        self,
+        ticker: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> RelatedCompany: ...
+    @overload
+    def get_related_companies(
+        self,
+        ticker: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_related_companies(
+        self,
+        ticker: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[RelatedCompany, HTTPResponse]: ...
     def get_related_companies(
         self,
         ticker: Optional[str] = None,
@@ -288,6 +552,70 @@ class TickersClient(BaseClient):
 
 
 class SplitsClient(BaseClient):
+    @overload
+    def list_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        reverse_split: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Split]: ...
+    @overload
+    def list_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        reverse_split: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        reverse_split: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Split], HTTPResponse]: ...
     def list_splits(
         self,
         ticker: Optional[str] = None,
@@ -341,6 +669,133 @@ class SplitsClient(BaseClient):
 
 
 class DividendsClient(BaseClient):
+    @overload
+    def list_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        record_date: Optional[Union[str, date]] = None,
+        record_date_lt: Optional[Union[str, date]] = None,
+        record_date_lte: Optional[Union[str, date]] = None,
+        record_date_gt: Optional[Union[str, date]] = None,
+        record_date_gte: Optional[Union[str, date]] = None,
+        declaration_date: Optional[Union[str, date]] = None,
+        declaration_date_lt: Optional[Union[str, date]] = None,
+        declaration_date_lte: Optional[Union[str, date]] = None,
+        declaration_date_gt: Optional[Union[str, date]] = None,
+        declaration_date_gte: Optional[Union[str, date]] = None,
+        pay_date: Optional[Union[str, date]] = None,
+        pay_date_lt: Optional[Union[str, date]] = None,
+        pay_date_lte: Optional[Union[str, date]] = None,
+        pay_date_gt: Optional[Union[str, date]] = None,
+        pay_date_gte: Optional[Union[str, date]] = None,
+        frequency: Optional[Union[int, Frequency]] = None,
+        cash_amount: Optional[float] = None,
+        cash_amount_lt: Optional[float] = None,
+        cash_amount_lte: Optional[float] = None,
+        cash_amount_gt: Optional[float] = None,
+        cash_amount_gte: Optional[float] = None,
+        dividend_type: Optional[Union[str, DividendType]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Dividend]: ...
+    @overload
+    def list_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        record_date: Optional[Union[str, date]] = None,
+        record_date_lt: Optional[Union[str, date]] = None,
+        record_date_lte: Optional[Union[str, date]] = None,
+        record_date_gt: Optional[Union[str, date]] = None,
+        record_date_gte: Optional[Union[str, date]] = None,
+        declaration_date: Optional[Union[str, date]] = None,
+        declaration_date_lt: Optional[Union[str, date]] = None,
+        declaration_date_lte: Optional[Union[str, date]] = None,
+        declaration_date_gt: Optional[Union[str, date]] = None,
+        declaration_date_gte: Optional[Union[str, date]] = None,
+        pay_date: Optional[Union[str, date]] = None,
+        pay_date_lt: Optional[Union[str, date]] = None,
+        pay_date_lte: Optional[Union[str, date]] = None,
+        pay_date_gt: Optional[Union[str, date]] = None,
+        pay_date_gte: Optional[Union[str, date]] = None,
+        frequency: Optional[Union[int, Frequency]] = None,
+        cash_amount: Optional[float] = None,
+        cash_amount_lt: Optional[float] = None,
+        cash_amount_lte: Optional[float] = None,
+        cash_amount_gt: Optional[float] = None,
+        cash_amount_gte: Optional[float] = None,
+        dividend_type: Optional[Union[str, DividendType]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        record_date: Optional[Union[str, date]] = None,
+        record_date_lt: Optional[Union[str, date]] = None,
+        record_date_lte: Optional[Union[str, date]] = None,
+        record_date_gt: Optional[Union[str, date]] = None,
+        record_date_gte: Optional[Union[str, date]] = None,
+        declaration_date: Optional[Union[str, date]] = None,
+        declaration_date_lt: Optional[Union[str, date]] = None,
+        declaration_date_lte: Optional[Union[str, date]] = None,
+        declaration_date_gt: Optional[Union[str, date]] = None,
+        declaration_date_gte: Optional[Union[str, date]] = None,
+        pay_date: Optional[Union[str, date]] = None,
+        pay_date_lt: Optional[Union[str, date]] = None,
+        pay_date_lte: Optional[Union[str, date]] = None,
+        pay_date_gt: Optional[Union[str, date]] = None,
+        pay_date_gte: Optional[Union[str, date]] = None,
+        frequency: Optional[Union[int, Frequency]] = None,
+        cash_amount: Optional[float] = None,
+        cash_amount_lt: Optional[float] = None,
+        cash_amount_lte: Optional[float] = None,
+        cash_amount_gt: Optional[float] = None,
+        cash_amount_gte: Optional[float] = None,
+        dividend_type: Optional[Union[str, DividendType]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Dividend], HTTPResponse]: ...
     def list_dividends(
         self,
         ticker: Optional[str] = None,
@@ -432,6 +887,49 @@ class DividendsClient(BaseClient):
 
 
 class ConditionsClient(BaseClient):
+    @overload
+    def list_conditions(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        data_type: Optional[Union[str, DataType]] = None,
+        id: Optional[int] = None,
+        sip: Optional[Union[str, SIP]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Condition]: ...
+    @overload
+    def list_conditions(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        data_type: Optional[Union[str, DataType]] = None,
+        id: Optional[int] = None,
+        sip: Optional[Union[str, SIP]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_conditions(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        data_type: Optional[Union[str, DataType]] = None,
+        id: Optional[int] = None,
+        sip: Optional[Union[str, SIP]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Condition], HTTPResponse]: ...
     def list_conditions(
         self,
         asset_class: Optional[Union[str, AssetClass]] = None,
@@ -471,6 +969,34 @@ class ConditionsClient(BaseClient):
 
 
 class ExchangesClient(BaseClient):
+    @overload
+    def get_exchanges(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[Exchange]: ...
+    @overload
+    def get_exchanges(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_exchanges(
+        self,
+        asset_class: Optional[Union[str, AssetClass]] = None,
+        locale: Optional[Union[str, Locale]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[Exchange], HTTPResponse]: ...
     def get_exchanges(
         self,
         asset_class: Optional[Union[str, AssetClass]] = None,
@@ -501,6 +1027,34 @@ class ExchangesClient(BaseClient):
 
 
 class ContractsClient(BaseClient):
+    @overload
+    def get_options_contract(
+        self,
+        ticker: str,
+        as_of: Optional[Union[str, date]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> OptionsContract: ...
+    @overload
+    def get_options_contract(
+        self,
+        ticker: str,
+        as_of: Optional[Union[str, date]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_options_contract(
+        self,
+        ticker: str,
+        as_of: Optional[Union[str, date]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[OptionsContract, HTTPResponse]: ...
     def get_options_contract(
         self,
         ticker: str,
@@ -529,6 +1083,91 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_options_contracts(
+        self,
+        underlying_ticker: Optional[str] = None,
+        underlying_ticker_lt: Optional[str] = None,
+        underlying_ticker_lte: Optional[str] = None,
+        underlying_ticker_gt: Optional[str] = None,
+        underlying_ticker_gte: Optional[str] = None,
+        contract_type: Optional[str] = None,
+        expiration_date: Optional[Union[str, date]] = None,
+        expiration_date_lt: Optional[Union[str, date]] = None,
+        expiration_date_lte: Optional[Union[str, date]] = None,
+        expiration_date_gt: Optional[Union[str, date]] = None,
+        expiration_date_gte: Optional[Union[str, date]] = None,
+        as_of: Optional[Union[str, date]] = None,
+        strike_price: Optional[float] = None,
+        strike_price_lt: Optional[float] = None,
+        strike_price_lte: Optional[float] = None,
+        strike_price_gt: Optional[float] = None,
+        strike_price_gte: Optional[float] = None,
+        expired: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[OptionsContract]: ...
+    @overload
+    def list_options_contracts(
+        self,
+        underlying_ticker: Optional[str] = None,
+        underlying_ticker_lt: Optional[str] = None,
+        underlying_ticker_lte: Optional[str] = None,
+        underlying_ticker_gt: Optional[str] = None,
+        underlying_ticker_gte: Optional[str] = None,
+        contract_type: Optional[str] = None,
+        expiration_date: Optional[Union[str, date]] = None,
+        expiration_date_lt: Optional[Union[str, date]] = None,
+        expiration_date_lte: Optional[Union[str, date]] = None,
+        expiration_date_gt: Optional[Union[str, date]] = None,
+        expiration_date_gte: Optional[Union[str, date]] = None,
+        as_of: Optional[Union[str, date]] = None,
+        strike_price: Optional[float] = None,
+        strike_price_lt: Optional[float] = None,
+        strike_price_lte: Optional[float] = None,
+        strike_price_gt: Optional[float] = None,
+        strike_price_gte: Optional[float] = None,
+        expired: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_options_contracts(
+        self,
+        underlying_ticker: Optional[str] = None,
+        underlying_ticker_lt: Optional[str] = None,
+        underlying_ticker_lte: Optional[str] = None,
+        underlying_ticker_gt: Optional[str] = None,
+        underlying_ticker_gte: Optional[str] = None,
+        contract_type: Optional[str] = None,
+        expiration_date: Optional[Union[str, date]] = None,
+        expiration_date_lt: Optional[Union[str, date]] = None,
+        expiration_date_lte: Optional[Union[str, date]] = None,
+        expiration_date_gt: Optional[Union[str, date]] = None,
+        expiration_date_gte: Optional[Union[str, date]] = None,
+        as_of: Optional[Union[str, date]] = None,
+        strike_price: Optional[float] = None,
+        strike_price_lt: Optional[float] = None,
+        strike_price_lte: Optional[float] = None,
+        strike_price_gt: Optional[float] = None,
+        strike_price_gte: Optional[float] = None,
+        expired: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[OptionsContract], HTTPResponse]: ...
     def list_options_contracts(
         self,
         underlying_ticker: Optional[str] = None,
@@ -582,6 +1221,60 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_short_interest(
+        self,
+        ticker: Optional[str] = None,
+        days_to_cover: Optional[str] = None,
+        days_to_cover_lt: Optional[str] = None,
+        days_to_cover_lte: Optional[str] = None,
+        days_to_cover_gt: Optional[str] = None,
+        days_to_cover_gte: Optional[str] = None,
+        settlement_date: Optional[str] = None,
+        settlement_date_lt: Optional[str] = None,
+        settlement_date_lte: Optional[str] = None,
+        settlement_date_gt: Optional[str] = None,
+        settlement_date_gte: Optional[str] = None,
+        avg_daily_volume: Optional[str] = None,
+        avg_daily_volume_lt: Optional[str] = None,
+        avg_daily_volume_lte: Optional[str] = None,
+        avg_daily_volume_gt: Optional[str] = None,
+        avg_daily_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[ShortInterest]: ...
+    @overload
+    def list_short_interest(
+        self,
+        ticker: Optional[str] = None,
+        days_to_cover: Optional[str] = None,
+        days_to_cover_lt: Optional[str] = None,
+        days_to_cover_lte: Optional[str] = None,
+        days_to_cover_gt: Optional[str] = None,
+        days_to_cover_gte: Optional[str] = None,
+        settlement_date: Optional[str] = None,
+        settlement_date_lt: Optional[str] = None,
+        settlement_date_lte: Optional[str] = None,
+        settlement_date_gt: Optional[str] = None,
+        settlement_date_gte: Optional[str] = None,
+        avg_daily_volume: Optional[str] = None,
+        avg_daily_volume_lt: Optional[str] = None,
+        avg_daily_volume_lte: Optional[str] = None,
+        avg_daily_volume_gt: Optional[str] = None,
+        avg_daily_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
     def list_short_interest(
         self,
         ticker: Optional[str] = None,
@@ -606,7 +1299,32 @@ class ContractsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[ShortInterest], HTTPResponse]:
+    ) -> Union[Iterator[ShortInterest], HTTPResponse]: ...
+    def list_short_interest(
+        self,
+        ticker: Optional[str] = None,
+        days_to_cover: Optional[str] = None,
+        days_to_cover_lt: Optional[str] = None,
+        days_to_cover_lte: Optional[str] = None,
+        days_to_cover_gt: Optional[str] = None,
+        days_to_cover_gte: Optional[str] = None,
+        settlement_date: Optional[str] = None,
+        settlement_date_lt: Optional[str] = None,
+        settlement_date_lte: Optional[str] = None,
+        settlement_date_gt: Optional[str] = None,
+        settlement_date_gte: Optional[str] = None,
+        avg_daily_volume: Optional[str] = None,
+        avg_daily_volume_lt: Optional[str] = None,
+        avg_daily_volume_lte: Optional[str] = None,
+        avg_daily_volume_gt: Optional[str] = None,
+        avg_daily_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[ShortInterest], HTTPResponse]:
         """
         Retrieve short interest data for stocks.
 
@@ -632,7 +1350,7 @@ class ContractsClient(BaseClient):
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return List[ShortInterest].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of ShortInterest objects or HTTPResponse if raw=True.
+        :return: An iterator of ShortInterest objects or HTTPResponse if raw=True.
         """
         url = "/stocks/v1/short-interest"
 
@@ -645,6 +1363,60 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_short_volume(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        short_volume_ratio: Optional[str] = None,
+        short_volume_ratio_lt: Optional[str] = None,
+        short_volume_ratio_lte: Optional[str] = None,
+        short_volume_ratio_gt: Optional[str] = None,
+        short_volume_ratio_gte: Optional[str] = None,
+        total_volume: Optional[str] = None,
+        total_volume_lt: Optional[str] = None,
+        total_volume_lte: Optional[str] = None,
+        total_volume_gt: Optional[str] = None,
+        total_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[ShortVolume]: ...
+    @overload
+    def list_short_volume(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        short_volume_ratio: Optional[str] = None,
+        short_volume_ratio_lt: Optional[str] = None,
+        short_volume_ratio_lte: Optional[str] = None,
+        short_volume_ratio_gt: Optional[str] = None,
+        short_volume_ratio_gte: Optional[str] = None,
+        total_volume: Optional[str] = None,
+        total_volume_lt: Optional[str] = None,
+        total_volume_lte: Optional[str] = None,
+        total_volume_gt: Optional[str] = None,
+        total_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
     def list_short_volume(
         self,
         ticker: Optional[str] = None,
@@ -669,7 +1441,32 @@ class ContractsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[ShortVolume], HTTPResponse]:
+    ) -> Union[Iterator[ShortVolume], HTTPResponse]: ...
+    def list_short_volume(
+        self,
+        ticker: Optional[str] = None,
+        date: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        short_volume_ratio: Optional[str] = None,
+        short_volume_ratio_lt: Optional[str] = None,
+        short_volume_ratio_lte: Optional[str] = None,
+        short_volume_ratio_gt: Optional[str] = None,
+        short_volume_ratio_gte: Optional[str] = None,
+        total_volume: Optional[str] = None,
+        total_volume_lt: Optional[str] = None,
+        total_volume_lte: Optional[str] = None,
+        total_volume_gt: Optional[str] = None,
+        total_volume_gte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[ShortVolume], HTTPResponse]:
         """
         Retrieve short volume data for stocks.
 
@@ -695,7 +1492,7 @@ class ContractsClient(BaseClient):
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return List[ShortVolume].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of ShortVolume objects or HTTPResponse if raw=True.
+        :return: An iterator of ShortVolume objects or HTTPResponse if raw=True.
         """
         url = "/stocks/v1/short-volume"
 
@@ -710,6 +1507,73 @@ class ContractsClient(BaseClient):
 
     # Add these functions to financials.py in the FinancialsClient class
 
+    @overload
+    def list_stocks_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        adjustment_type: Optional[str] = None,
+        adjustment_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[StockSplit]: ...
+    @overload
+    def list_stocks_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        adjustment_type: Optional[str] = None,
+        adjustment_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_splits(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        execution_date: Optional[Union[str, date]] = None,
+        execution_date_gt: Optional[Union[str, date]] = None,
+        execution_date_gte: Optional[Union[str, date]] = None,
+        execution_date_lt: Optional[Union[str, date]] = None,
+        execution_date_lte: Optional[Union[str, date]] = None,
+        adjustment_type: Optional[str] = None,
+        adjustment_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[StockSplit], HTTPResponse]: ...
     def list_stocks_splits(
         self,
         ticker: Optional[str] = None,
@@ -743,6 +1607,88 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        frequency: Optional[int] = None,
+        frequency_gt: Optional[int] = None,
+        frequency_gte: Optional[int] = None,
+        frequency_lt: Optional[int] = None,
+        frequency_lte: Optional[int] = None,
+        distribution_type: Optional[str] = None,
+        distribution_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[StockDividend]: ...
+    @overload
+    def list_stocks_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        frequency: Optional[int] = None,
+        frequency_gt: Optional[int] = None,
+        frequency_gte: Optional[int] = None,
+        frequency_lt: Optional[int] = None,
+        frequency_lte: Optional[int] = None,
+        distribution_type: Optional[str] = None,
+        distribution_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_dividends(
+        self,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, date]] = None,
+        ex_dividend_date_gt: Optional[Union[str, date]] = None,
+        ex_dividend_date_gte: Optional[Union[str, date]] = None,
+        ex_dividend_date_lt: Optional[Union[str, date]] = None,
+        ex_dividend_date_lte: Optional[Union[str, date]] = None,
+        frequency: Optional[int] = None,
+        frequency_gt: Optional[int] = None,
+        frequency_gte: Optional[int] = None,
+        frequency_lt: Optional[int] = None,
+        frequency_lte: Optional[int] = None,
+        distribution_type: Optional[str] = None,
+        distribution_type_any_of: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[StockDividend], HTTPResponse]: ...
     def list_stocks_dividends(
         self,
         ticker: Optional[str] = None,
@@ -781,6 +1727,88 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_risk_factors(
+        self,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[RiskFactor]: ...
+    @overload
+    def list_stocks_filings_risk_factors(
+        self,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_risk_factors(
+        self,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[RiskFactor], HTTPResponse]: ...
     def list_stocks_filings_risk_factors(
         self,
         filing_date: Optional[Union[str, date]] = None,
@@ -820,6 +1848,103 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_taxonomies_risk_factors(
+        self,
+        taxonomy: Optional[float] = None,
+        taxonomy_gt: Optional[float] = None,
+        taxonomy_gte: Optional[float] = None,
+        taxonomy_lt: Optional[float] = None,
+        taxonomy_lte: Optional[float] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[RiskFactorTaxonomy]: ...
+    @overload
+    def list_stocks_taxonomies_risk_factors(
+        self,
+        taxonomy: Optional[float] = None,
+        taxonomy_gt: Optional[float] = None,
+        taxonomy_gte: Optional[float] = None,
+        taxonomy_lt: Optional[float] = None,
+        taxonomy_lte: Optional[float] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_taxonomies_risk_factors(
+        self,
+        taxonomy: Optional[float] = None,
+        taxonomy_gt: Optional[float] = None,
+        taxonomy_gte: Optional[float] = None,
+        taxonomy_lt: Optional[float] = None,
+        taxonomy_lte: Optional[float] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[RiskFactorTaxonomy], HTTPResponse]: ...
     def list_stocks_taxonomies_risk_factors(
         self,
         taxonomy: Optional[float] = None,
@@ -864,6 +1989,70 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_8k_disclosures(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        tertiary_category: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Disclosure]: ...
+    @overload
+    def list_stocks_filings_8k_disclosures(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        tertiary_category: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_8k_disclosures(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_any_of: Optional[str] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        tertiary_category: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Disclosure], HTTPResponse]: ...
     def list_stocks_filings_8k_disclosures(
         self,
         cik: Optional[str] = None,
@@ -900,6 +2089,106 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_taxonomies_disclosures(
+        self,
+        taxonomy: Optional[str] = None,
+        taxonomy_any_of: Optional[str] = None,
+        taxonomy_gt: Optional[str] = None,
+        taxonomy_gte: Optional[str] = None,
+        taxonomy_lt: Optional[str] = None,
+        taxonomy_lte: Optional[str] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[DisclosureTaxonomy]: ...
+    @overload
+    def list_stocks_taxonomies_disclosures(
+        self,
+        taxonomy: Optional[str] = None,
+        taxonomy_any_of: Optional[str] = None,
+        taxonomy_gt: Optional[str] = None,
+        taxonomy_gte: Optional[str] = None,
+        taxonomy_lt: Optional[str] = None,
+        taxonomy_lte: Optional[str] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_taxonomies_disclosures(
+        self,
+        taxonomy: Optional[str] = None,
+        taxonomy_any_of: Optional[str] = None,
+        taxonomy_gt: Optional[str] = None,
+        taxonomy_gte: Optional[str] = None,
+        taxonomy_lt: Optional[str] = None,
+        taxonomy_lte: Optional[str] = None,
+        primary_category: Optional[str] = None,
+        primary_category_any_of: Optional[str] = None,
+        primary_category_gt: Optional[str] = None,
+        primary_category_gte: Optional[str] = None,
+        primary_category_lt: Optional[str] = None,
+        primary_category_lte: Optional[str] = None,
+        secondary_category: Optional[str] = None,
+        secondary_category_any_of: Optional[str] = None,
+        secondary_category_gt: Optional[str] = None,
+        secondary_category_gte: Optional[str] = None,
+        secondary_category_lt: Optional[str] = None,
+        secondary_category_lte: Optional[str] = None,
+        tertiary_category: Optional[str] = None,
+        tertiary_category_any_of: Optional[str] = None,
+        tertiary_category_gt: Optional[str] = None,
+        tertiary_category_gte: Optional[str] = None,
+        tertiary_category_lt: Optional[str] = None,
+        tertiary_category_lte: Optional[str] = None,
+        limit: Optional[int] = 200,
+        sort: Optional[Union[str, Sort]] = "taxonomy.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[DisclosureTaxonomy], HTTPResponse]: ...
     def list_stocks_taxonomies_disclosures(
         self,
         taxonomy: Optional[str] = None,
@@ -946,6 +2235,106 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_10k_sections(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        section: Optional[str] = None,
+        section_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        period_end: Optional[Union[str, date]] = None,
+        period_end_gt: Optional[Union[str, date]] = None,
+        period_end_gte: Optional[Union[str, date]] = None,
+        period_end_lt: Optional[Union[str, date]] = None,
+        period_end_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "period_end.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FilingSection]: ...
+    @overload
+    def list_stocks_filings_10k_sections(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        section: Optional[str] = None,
+        section_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        period_end: Optional[Union[str, date]] = None,
+        period_end_gt: Optional[Union[str, date]] = None,
+        period_end_gte: Optional[Union[str, date]] = None,
+        period_end_lt: Optional[Union[str, date]] = None,
+        period_end_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "period_end.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_10k_sections(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        section: Optional[str] = None,
+        section_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        period_end: Optional[Union[str, date]] = None,
+        period_end_gt: Optional[Union[str, date]] = None,
+        period_end_gte: Optional[Union[str, date]] = None,
+        period_end_lt: Optional[Union[str, date]] = None,
+        period_end_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "period_end.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FilingSection], HTTPResponse]: ...
     def list_stocks_filings_10k_sections(
         self,
         cik: Optional[str] = None,
@@ -991,6 +2380,103 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_8k_text(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Filing8K]: ...
+    @overload
+    def list_stocks_filings_8k_text(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_8k_text(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Filing8K], HTTPResponse]: ...
     def list_stocks_filings_8k_text(
         self,
         cik: Optional[str] = None,
@@ -1035,6 +2521,103 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_index(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 1000,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FilingIndex]: ...
+    @overload
+    def list_stocks_filings_index(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 1000,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_index(
+        self,
+        cik: Optional[str] = None,
+        cik_any_of: Optional[str] = None,
+        cik_gt: Optional[str] = None,
+        cik_gte: Optional[str] = None,
+        cik_lt: Optional[str] = None,
+        cik_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        form_type: Optional[str] = None,
+        form_type_any_of: Optional[str] = None,
+        form_type_gt: Optional[str] = None,
+        form_type_gte: Optional[str] = None,
+        form_type_lt: Optional[str] = None,
+        form_type_lte: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 1000,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FilingIndex], HTTPResponse]: ...
     def list_stocks_filings_index(
         self,
         cik: Optional[str] = None,
@@ -1079,6 +2662,55 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_13f(
+        self,
+        filer_cik: Optional[str] = None,
+        filer_cik_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Filing13F]: ...
+    @overload
+    def list_stocks_filings_13f(
+        self,
+        filer_cik: Optional[str] = None,
+        filer_cik_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_13f(
+        self,
+        filer_cik: Optional[str] = None,
+        filer_cik_any_of: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Filing13F], HTTPResponse]: ...
     def list_stocks_filings_13f(
         self,
         filer_cik: Optional[str] = None,
@@ -1110,6 +2742,109 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_form_3(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FilingForm3]: ...
+    @overload
+    def list_stocks_filings_form_3(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_form_3(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FilingForm3], HTTPResponse]: ...
     def list_stocks_filings_form_3(
         self,
         issuer_cik: Optional[str] = None,
@@ -1158,6 +2893,112 @@ class ContractsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_stocks_filings_form_4(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        transaction_code: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FilingForm4]: ...
+    @overload
+    def list_stocks_filings_form_4(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        transaction_code: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stocks_filings_form_4(
+        self,
+        issuer_cik: Optional[str] = None,
+        issuer_cik_any_of: Optional[str] = None,
+        owner_cik: Optional[str] = None,
+        owner_cik_any_of: Optional[str] = None,
+        tickers: Optional[str] = None,
+        tickers_all_of: Optional[str] = None,
+        tickers_any_of: Optional[str] = None,
+        form_type: Optional[str] = None,
+        transaction_code: Optional[str] = None,
+        filing_date: Optional[Union[str, date]] = None,
+        filing_date_gt: Optional[Union[str, date]] = None,
+        filing_date_gte: Optional[Union[str, date]] = None,
+        filing_date_lt: Optional[Union[str, date]] = None,
+        filing_date_lte: Optional[Union[str, date]] = None,
+        max_ticker: Optional[str] = None,
+        max_ticker_any_of: Optional[str] = None,
+        max_ticker_gt: Optional[str] = None,
+        max_ticker_gte: Optional[str] = None,
+        max_ticker_lt: Optional[str] = None,
+        max_ticker_lte: Optional[str] = None,
+        min_ticker: Optional[str] = None,
+        min_ticker_any_of: Optional[str] = None,
+        min_ticker_gt: Optional[str] = None,
+        min_ticker_gte: Optional[str] = None,
+        min_ticker_lt: Optional[str] = None,
+        min_ticker_lte: Optional[str] = None,
+        limit: Optional[int] = 100,
+        sort: Optional[Union[str, Sort]] = "filing_date.desc",
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FilingForm4], HTTPResponse]: ...
     def list_stocks_filings_form_4(
         self,
         issuer_cik: Optional[str] = None,
