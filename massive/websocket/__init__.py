@@ -39,7 +39,7 @@ class WebSocketClient:
         raw: bool = False,
         verbose: bool = False,
         subscriptions: Optional[List[str]] = None,
-        max_reconnects: Optional[int] = 5,
+        max_reconnects: Optional[int] = None,
         secure: bool = True,
         custom_json: Optional[Any] = None,
         ca_certs: Optional[str] = None,
@@ -55,7 +55,13 @@ class WebSocketClient:
         :param raw: Whether to pass raw Union[str, bytes] to user callback.
         :param verbose: Whether to log client and server status messages.
         :param subscriptions: List of subscription parameters.
-        :param max_reconnects: How many times to reconnect on network outage before ending .connect event loop.
+        :param max_reconnects: How many consecutive reconnect attempts may fail
+            (the connection is refused, or ends before or after authenticating)
+            before .connect raises the last error. The count starts over whenever
+            a connection authenticates. None, the default, retries forever. Only
+            transient failures are retried and the wait between attempts grows,
+            while other errors (e.g. HTTP 4xx) are raised at once, so with the
+            default .run is safe in a long-lived process.
         :param custom_json: Optional module exposing loads/dumps functions (similar to Python's json module) to be used for JSON conversions.
         :param ca_certs: Path to a CA bundle to verify TLS with. Defaults to the SSL_CERT_FILE or REQUESTS_CA_BUNDLE environment variable, then certifi.
         :param reconnect_backoff: Seconds to wait before reconnecting after the
@@ -144,9 +150,9 @@ class WebSocketClient:
         :raises AuthError: If invalid API key is supplied.
         :raises TypeError: If `process_exception` is passed: connect() decides
             itself which errors to retry.
-        :raises ConnectionClosed: If more than `max_reconnects` reconnects fail,
-            the error that ended the last connection; ConnectionClosedOK if the
-            server closed it cleanly.
+        :raises Exception: If more than `max_reconnects` consecutive attempts
+            fail, the error that ended the last one, e.g. ConnectionClosedOK if
+            the server closed the last connection cleanly.
         """
         self._loop = asyncio.get_running_loop()
         self._close_event = asyncio.Event()
@@ -166,8 +172,8 @@ class WebSocketClient:
         close_timeout: int,
         **kwargs,
     ):
-        reconnects = 0
-        # consecutive failed attempts, which set the backoff
+        # consecutive failed attempts, which set the backoff and are limited
+        # by max_reconnects
         failures = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
@@ -195,7 +201,10 @@ class WebSocketClient:
             except Exception as e:
                 if not self._is_transient(e):
                     raise
+                last_exc = e
                 failures += 1
+                if self._too_many_failures(failures):
+                    break
                 delay = self._reconnect_delay(failures - 1)
                 logger.warning("connect failed; reconnecting in %.1f s: %s", delay, e)
                 continue
@@ -263,8 +272,7 @@ class WebSocketClient:
                 # the server can close cleanly too, e.g. after max_connections
                 last_exc = e
                 failures += 1
-                reconnects += 1
-                if self.max_reconnects is not None and reconnects > self.max_reconnects:
+                if self._too_many_failures(failures):
                     break
                 delay = self._reconnect_delay(failures - 1)
                 logger.warning(
@@ -278,12 +286,11 @@ class WebSocketClient:
                 self.schedule_resub = True
                 await s.close()
 
-        if (
-            last_exc
-            and self.max_reconnects is not None
-            and reconnects > self.max_reconnects
-        ):
+        if last_exc is not None and self._too_many_failures(failures):
             raise last_exc
+
+    def _too_many_failures(self, failures: int) -> bool:
+        return self.max_reconnects is not None and failures > self.max_reconnects
 
     @staticmethod
     def _is_transient(exc: Exception) -> bool:
