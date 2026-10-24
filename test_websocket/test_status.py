@@ -95,3 +95,13 @@ class StatusTest(BaseTest):
                 "Maximum number of websocket connections exceeded."
             ],
         )
+
+    async def test_invalid_subscription_is_logged(self):
+        # a topic without a channel prefix is skipped with a warning
+        c = WebSocketClient(api_key="")
+        with self.assertLogs("WebSocketClient", level="WARNING") as logs:
+            c.subscribe("AAPL")
+        self.assertEqual(
+            logs.output, ["WARNING:WebSocketClient:invalid subscription: AAPL"]
+        )
+        self.assertEqual(c.scheduled_subs, set())
