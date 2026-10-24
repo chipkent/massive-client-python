@@ -18,11 +18,12 @@ import logging
 import json
 import functools
 import asyncio
+import random
 import ssl
 import threading
 import time
 from .models import *
-from websockets.asyncio.client import connect, ClientConnection
+from websockets.asyncio.client import connect, ClientConnection, process_exception
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ..certs import ca_bundle_path
 from ..logging import get_logger
@@ -66,6 +67,12 @@ class WebSocketClient:
         secure: bool = True,
         custom_json: Optional[Any] = None,
         ca_certs: Optional[str] = None,
+        reconnect_backoff: float = 0.0,
+        max_reconnect_backoff: float = 120.0,
+        reconnect_on_close: bool = False,
+        max_consecutive_failures: Optional[int] = None,
+        stable_uptime: float = 60.0,
+        raise_fatal_errors: bool = False,
         **kwargs,
     ):
         """
@@ -79,8 +86,20 @@ class WebSocketClient:
         :param max_reconnects: How many times to reconnect on network outage before ending .connect event loop.
         :param custom_json: Optional module exposing loads/dumps functions (similar to Python's json module) to be used for JSON conversions.
         :param ca_certs: Path to a CA bundle to verify TLS with. Defaults to the SSL_CERT_FILE or REQUESTS_CA_BUNDLE environment variable, then certifi.
+        :param reconnect_backoff: Seconds to wait before reconnecting after an open connection closes. The wait doubles with each consecutive failure, up to max_reconnect_backoff, with random jitter. 0 (the default) reconnects at once.
+        :param max_reconnect_backoff: The longest wait before reconnecting, in seconds.
+        :param reconnect_on_close: Also reconnect when the server closes the connection normally (e.g. code 1000), counting toward max_reconnects. By default, .connect returns then.
+        :param max_consecutive_failures: How many failures in a row .connect allows before it raises the last error. A failure is a connection attempt that fails, or a connection that closes before it has been open for stable_uptime seconds. None (the default) allows any number. max_reconnects applies too.
+        :param stable_uptime: Seconds a connection must stay open to reset the failure count and the backoff.
+        :param raise_fatal_errors: Raise connection errors that retrying will not fix, such as an HTTP 404 during the handshake, instead of retrying them forever. Uses websockets' default process_exception.
+        :raises ValueError: If reconnect_backoff is negative or greater than max_reconnect_backoff.
         :return: A client.
         """
+        if not 0 <= reconnect_backoff <= max_reconnect_backoff:
+            raise ValueError(
+                "need 0 <= reconnect_backoff <= max_reconnect_backoff, got "
+                f"{reconnect_backoff} and {max_reconnect_backoff}"
+            )
         if api_key is None:
             raise AuthError(
                 f"Must specify env var {env_key} or pass api_key in constructor"
@@ -103,6 +122,15 @@ class WebSocketClient:
         self.subscribed = False
         self.subs: Set[str] = set()
         self.max_reconnects = max_reconnects
+        self.reconnect_backoff = reconnect_backoff
+        self.max_reconnect_backoff = max_reconnect_backoff
+        self.reconnect_on_close = reconnect_on_close
+        self.max_consecutive_failures = max_consecutive_failures
+        self.stable_uptime = stable_uptime
+        self.raise_fatal_errors = raise_fatal_errors
+        # whether the server sent a max_connections status during the last
+        # handshake: the account has too many connections open
+        self.max_connections_reached = False
         self.websocket: Optional[ClientConnection] = None
         if subscriptions is None:
             subscriptions = []
@@ -143,28 +171,45 @@ class WebSocketClient:
 
         :param processor: The callback to process messages.
         :param close_timeout: How long to wait for handshake when calling .close.
+        :param kwargs: Passed to websockets' connect(), e.g. process_exception.
         :raises AuthError: If invalid API key is supplied.
         """
         # a new connection has no subscriptions, whatever an earlier call left
         self.subs = set()
         self.schedule_resub = True
         reconnects = 0
+        # failed attempts and short-lived connections in a row
+        failures = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
 
-        last_exc = None
+        retry_or_raise = kwargs.pop(
+            "process_exception",
+            process_exception if self.raise_fatal_errors else lambda exc: None,
+        )
+
+        def on_connect_error(exc: Exception) -> Optional[Exception]:
+            nonlocal failures
+            failures += 1
+            if self._too_many(failures, self.max_consecutive_failures):
+                return exc
+            return retry_or_raise(exc)
+
+        last_exc: Optional[Exception] = None
         async for s in connect(
             self.url,
             close_timeout=close_timeout,
             ssl=ssl_context,
-            process_exception=lambda exc: None,
+            process_exception=on_connect_error,
             **kwargs,
         ):
             self.websocket = s
+            connected_at = None
             try:
                 msg = await s.recv()
                 logger.debug("connected: %s", msg)
-                self._log_server_statuses(self.json.loads(msg))
+                msg_parsed = self.json.loads(msg)
+                self._log_server_statuses(msg_parsed)
                 logger.debug("authing...")
                 await s.send(
                     self.json.dumps({"action": "auth", "params": self.api_key})
@@ -174,6 +219,11 @@ class WebSocketClient:
                 logger.debug("authed: %s", auth_msg)
                 if auth_msg_parsed[0]["status"] == "auth_failed":
                     raise AuthError(auth_msg_parsed[0]["message"])
+                self.max_connections_reached = any(
+                    m.get("status") == "max_connections"
+                    for m in msg_parsed + auth_msg_parsed
+                )
+                connected_at = time.monotonic()
                 # e.g. max_connections, which the server sends before closing
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
@@ -214,26 +264,50 @@ class WebSocketClient:
                 logger.debug("connection closed (OK): %s", e)
                 # the server sends a status (e.g. slow_consumer) before closing
                 self._flush_server_errors(force=True)
-                return
+                # rcvd_then_sent: the server closed it, rather than close()
+                if not (self.reconnect_on_close and e.rcvd_then_sent):
+                    return
+                last_exc = e
             except ConnectionClosedError as e:
                 last_exc = e
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
-                reconnects += 1
-                # keep scheduled_subs, which may hold changes not sent yet,
-                # and subscribe to all of it on the next connection
-                self.subs = set()
-                self.schedule_resub = True
-                if self.max_reconnects is not None and reconnects > self.max_reconnects:
-                    break
-                continue
+            reconnects += 1
+            # keep scheduled_subs, which may hold changes not sent yet,
+            # and subscribe to all of it on the next connection
+            self.subs = set()
+            self.schedule_resub = True
+            if (
+                connected_at is not None
+                and time.monotonic() - connected_at >= self.stable_uptime
+            ):
+                failures = 0
+            else:
+                failures += 1
+            if self._too_many(reconnects, self.max_reconnects) or self._too_many(
+                failures, self.max_consecutive_failures
+            ):
+                break
+            if self.reconnect_backoff > 0:
+                delay = self._reconnect_delay(failures)
+                logger.debug("reconnecting in %.1f s", delay)
+                await asyncio.sleep(delay)
 
-        if (
-            last_exc
-            and self.max_reconnects is not None
-            and reconnects > self.max_reconnects
-        ):
+        if last_exc is not None:
             raise last_exc
+
+    @staticmethod
+    def _too_many(count: int, limit: Optional[int]) -> bool:
+        return limit is not None and count > limit
+
+    def _reconnect_delay(self, failures: int) -> float:
+        # doubles with each failure in a row, up to the cap; jitter adds up
+        # to 20%, and at the cap draws from [max(base, cap / 1.2), cap] instead
+        base, cap = self.reconnect_backoff, self.max_reconnect_backoff
+        delay = min(base * 2.0 ** min(max(failures - 1, 0), 64), cap)
+        if delay < cap:
+            return random.uniform(delay, min(delay * 1.2, cap))
+        return random.uniform(max(base, cap / 1.2), cap)
 
     def _ssl_context(self) -> Optional[ssl.SSLContext]:
         # darwin needs some extra <3
