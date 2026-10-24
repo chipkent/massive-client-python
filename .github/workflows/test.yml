@@ -32,3 +32,23 @@ jobs:
         run: poetry install
       - name: Unit tests
         run: make test
+  test-free-threaded:
+    runs-on: ubuntu-latest
+    name: ubuntu-latest Unit test 3.14t (PYTHON_GIL=0)
+    env:
+      PYTHON_GIL: '0'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14t'
+      - name: Install pypi deps
+        # the tests need only the package and pook, not the dev tools
+        run: pip install -e . pook
+      - name: Check that the GIL is off
+        run: python -c "import sys; assert not sys._is_gil_enabled(), sys.version"
+      - name: Unit tests
+        run: |
+          python -m unittest discover -s test_rest
+          python -m unittest discover -s test_websocket
