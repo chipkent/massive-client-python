@@ -3,6 +3,9 @@ from base import BaseTest
 
 
 class DividendsTest(BaseTest):
+    # test_list_stocks_dividends_ticker_any_of requests this twice
+    persistent_mocks = {"/stocks/v1/dividends?ticker.any_of=AAPL%2CVZ"}
+
     def test_list_dividends(self):
         dividends = [d for d in self.c.list_dividends()]
         expected = [
