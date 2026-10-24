@@ -1,12 +1,37 @@
 from massive.rest.models.summaries import SummaryResult
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union
+from typing import Optional, Any, Dict, List, Union, Literal, overload
 from urllib3 import HTTPResponse
 
 from .models.request import RequestOptionBuilder
 
 
 class SummariesClient(BaseClient):
+    @overload
+    def get_summaries(
+        self,
+        ticker_any_of: Optional[List[str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> List[SummaryResult]: ...
+    @overload
+    def get_summaries(
+        self,
+        ticker_any_of: Optional[List[str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_summaries(
+        self,
+        ticker_any_of: Optional[List[str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[List[SummaryResult], HTTPResponse]: ...
     def get_summaries(
         self,
         ticker_any_of: Optional[List[str]] = None,
