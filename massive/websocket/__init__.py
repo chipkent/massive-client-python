@@ -285,7 +285,7 @@ class WebSocketClient:
             # If user subs to X.*, remove other X.\w+
             if sym == "*":
                 for t in list(self.subs):
-                    if t.startswith(topic):
+                    if t != s and t.strip().split(".", 1)[0] == topic:
                         self.scheduled_subs.discard(t)
 
         self.schedule_resub = True
@@ -306,7 +306,7 @@ class WebSocketClient:
             # If user unsubs to X.*, remove other X.\w+
             if sym == "*":
                 for t in list(self.subs):
-                    if t.startswith(topic):
+                    if t.strip().split(".", 1)[0] == topic:
                         self.scheduled_subs.discard(t)
 
         self.schedule_resub = True
