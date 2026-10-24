@@ -2,30 +2,10 @@ from massive import WebSocketClient
 from massive.websocket import logger
 from base_ws import BaseTest
 from mock_server import port
-from websockets.asyncio.client import connect
 import asyncio
 
 
 class StatusTest(BaseTest):
-    async def asyncSetUp(self):
-        await super().asyncSetUp()
-        # wait until the mock server is accepting connections
-        for _ in range(100):
-            try:
-                async with connect(f"ws://localhost:{port}"):
-                    return
-            except OSError:
-                await asyncio.sleep(0.05)
-        self.fail("mock server did not start")
-
-    async def asyncTearDown(self):
-        # wait for the server to shut down so the next test can bind the port
-        self.task.cancel()
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
-
     async def run_client(self, *subscriptions):
         c = WebSocketClient(api_key="", feed=f"localhost:{port}", secure=False)
         c.subscribe(*subscriptions)
