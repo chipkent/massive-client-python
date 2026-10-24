@@ -1,0 +1,32 @@
+{
+  "status": "OK",
+  "request_id": "6a7e466379af0a71039d60cc78e72282",
+  "count": 1,
+  "next_url": "https://api.massive.com/fed/v1/funding-conditions?cursor=ZGF0ZS5ndGU9MjAyNS0wNi0wMSZsaW1pdD0x",
+  "results": [
+    {
+      "date": "2025-06-01",
+      "effective_fed_funds_rate": 4.33,
+      "effective_fed_funds_volume": null,
+      "fed_funds_target_lower": 4.25,
+      "fed_funds_target_upper": 4.5,
+      "fed_overnight_repo_treasury_amount": null,
+      "fed_overnight_reverse_repo_treasury_amount": null,
+      "financial_commercial_paper_90d_rate": null,
+      "interest_on_reserve_balances": 4.4,
+      "nonfinancial_commercial_paper_90d_rate": null,
+      "obfr_25th_percentile": null,
+      "obfr_75th_percentile": null,
+      "obfr_volume": null,
+      "overnight_bank_funding_rate": null,
+      "secured_overnight_financing_rate": null,
+      "sofr_25th_percentile": null,
+      "sofr_75th_percentile": null,
+      "sofr_volume": null,
+      "tgcr_25th_percentile": null,
+      "tgcr_75th_percentile": null,
+      "tri_party_general_collateral_rate": null,
+      "tri_party_general_collateral_volume": null
+    }
+  ]
+}
