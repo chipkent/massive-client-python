@@ -1,18 +1,23 @@
 from websockets import serve  # type: ignore
 import asyncio
 import json
-from typing import Set
+from typing import Any, List, Set
 
 port = 8765
 subs: Set[str] = set()
+# the messages each connection received, in order; one list per connection
+inbox: List[List[Any]] = []
 
 
 async def mock_server(websocket):
+    received: List[Any] = []
+    inbox.append(received)
     await websocket.send(
         '[{"ev":"status","status":"connected","message":"Connected Successfully"}]'
     )
     async for message in websocket:
         message = json.loads(message)
+        received.append(message)
         if "action" not in message:
             continue
         if message["action"] == "auth" and message["params"] == "MAX-CONNECTIONS":
@@ -35,6 +40,13 @@ async def mock_server(websocket):
                 await websocket.close(code=1000)
                 return
             for p in message["params"].split(","):
+                if p == "DROP.X":
+                    # emulate the connection failing, right after a trade
+                    await websocket.send(
+                        '[{"ev":"T","sym":"X","i":"1","x":1,"p":1,"s":1,"t":1,"q":1}]'
+                    )
+                    await websocket.close(code=1011)
+                    return
                 if p.startswith("ERR."):
                     # emulate the server rejecting a subscription
                     await websocket.send(
