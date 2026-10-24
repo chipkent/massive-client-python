@@ -1,3 +1,5 @@
+import pook  # type: ignore
+
 from base import BaseTest
 from massive.rest.models.economy import FedFundingConditions
 
@@ -43,20 +45,45 @@ class EconomyTest(BaseTest):
         self.assertEqual(conditions, expected)
 
     def test_list_funding_conditions_query_params(self):
-        params = self.c._get_params(
-            self.c.list_funding_conditions,
-            {
-                "params": None,
-                "date": "2025-06-02",
-                "date_gt": "2025-06-01",
-                "date_gte": "2025-06-01",
-                "date_lt": "2025-06-03",
-                "date_lte": "2025-06-03",
-                "limit": 10,
-                "sort": "date.desc",
-            },
+        # each documented parameter is sent under its API name (date.gt, not date_gt)
+        params = {
+            "date": "2025-06-02",
+            "date.gt": "2025-06-01",
+            "date.gte": "2025-06-01",
+            "date.lt": "2025-06-03",
+            "date.lte": "2025-06-03",
+            "limit": "10",
+            "sort": "date.desc",
+        }
+        mock = pook.get(
+            self.c.BASE + "/fed/v1/funding-conditions",
+            params=params,
+            reply=200,
+            response_json={"results": []},
         )
-        self.assertEqual(
-            set(params),
-            {"date", "date.gt", "date.gte", "date.lt", "date.lte", "limit", "sort"},
+        conditions = self.c.list_funding_conditions(
+            date="2025-06-02",
+            date_gt="2025-06-01",
+            date_gte="2025-06-01",
+            date_lt="2025-06-03",
+            date_lte="2025-06-03",
+            limit=10,
+            sort="date.desc",
         )
+        self.assertEqual(list(conditions), [])
+        self.assertEqual(mock.calls, 1)
+        self.assertEqual(mock.matches[0].query, {k: [v] for k, v in params.items()})
+
+    def test_list_funding_conditions_sort_is_sent_as_given(self):
+        # sort takes "<column>.<asc|desc>" values, comma separated, not a
+        # bare direction, so the client must send the string unchanged.
+        sort = "date.desc,effective_fed_funds_rate.asc"
+        mock = pook.get(
+            self.c.BASE + "/fed/v1/funding-conditions",
+            params={"sort": sort},
+            reply=200,
+            response_json={"results": []},
+        )
+        self.assertEqual(list(self.c.list_funding_conditions(sort=sort)), [])
+        self.assertEqual(mock.calls, 1)
+        self.assertEqual(mock.matches[0].query, {"sort": [sort]})

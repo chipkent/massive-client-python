@@ -40,9 +40,9 @@ Set subscriptions
 .. automethod:: massive.WebSocketClient.set_subscriptions
 
 ============================
-Unsubscribe all
+Resubscribe
 ============================
-.. automethod:: massive.WebSocketClient.unsubscribe_all
+.. automethod:: massive.WebSocketClient.resubscribe
 
 ============================
 Close

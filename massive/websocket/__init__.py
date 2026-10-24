@@ -9,26 +9,22 @@ from typing import (
     Callable,
     Awaitable,
     Any,
-    Iterable,
     Tuple,
+    TypeVar,
+    cast,
+    Iterable,
 )
 import logging
 import json
+import functools
 import asyncio
 import random
 import ssl
-import sys
 import threading
 import time
 from .models import *
-from websockets.asyncio.client import connect, ClientConnection
-from websockets.exceptions import (
-    ConnectionClosed,
-    ConnectionClosedOK,
-    ConnectionClosedError,
-    InvalidMessage,
-    InvalidStatus,
-)
+from websockets.asyncio.client import connect, ClientConnection, process_exception
+from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from ..certs import ca_bundle_path
 from ..logging import get_logger
 import logging
@@ -41,6 +37,22 @@ logger = get_logger("WebSocketClient")
 # "max_connections", "slow_consumer", "force_disconnect") is logged as a warning.
 OK_STATUSES = {"connected", "auth_success", "success"}
 
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _changes_subscriptions(method: _F) -> _F:
+    # runs a WebSocketClient method that changes scheduled_subs under the
+    # client's lock, so it is safe to call from any thread, then wakes the
+    # task that sends the change
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._subs_lock:
+            result = method(self, *args, **kwargs)
+        self._notify()
+        return result
+
+    return cast(_F, wrapper)
+
 
 class WebSocketClient:
     def __init__(
@@ -51,12 +63,16 @@ class WebSocketClient:
         raw: bool = False,
         verbose: bool = False,
         subscriptions: Optional[List[str]] = None,
-        max_reconnects: Optional[int] = None,
+        max_reconnects: Optional[int] = 5,
         secure: bool = True,
         custom_json: Optional[Any] = None,
         ca_certs: Optional[str] = None,
-        reconnect_backoff: float = 15.0,
+        reconnect_backoff: float = 0.0,
         max_reconnect_backoff: float = 120.0,
+        reconnect_on_close: bool = False,
+        max_consecutive_failures: Optional[int] = None,
+        stable_uptime: float = 60.0,
+        raise_fatal_errors: bool = False,
         **kwargs,
     ):
         """
@@ -67,28 +83,19 @@ class WebSocketClient:
         :param raw: Whether to pass raw Union[str, bytes] to user callback.
         :param verbose: Whether to log client and server status messages.
         :param subscriptions: List of subscription parameters.
-        :param max_reconnects: How many consecutive reconnect attempts may fail
-            (the connection is refused, or ends before or after authenticating)
-            before .connect raises the last error. The count starts over whenever
-            a connection authenticates. None, the default, retries forever. Only
-            transient failures are retried and the wait between attempts grows,
-            while other errors (e.g. HTTP 4xx) are raised at once, so with the
-            default .run is safe in a long-lived process.
+        :param max_reconnects: How many times to reconnect on network outage before ending .connect event loop.
         :param custom_json: Optional module exposing loads/dumps functions (similar to Python's json module) to be used for JSON conversions.
         :param ca_certs: Path to a CA bundle to verify TLS with. Defaults to the SSL_CERT_FILE or REQUESTS_CA_BUNDLE environment variable, then certifi.
-        :param reconnect_backoff: Seconds to wait before reconnecting after the
-            connection ends or an attempt to connect fails. The wait doubles with
-            each consecutive failure and gets up to 20% random jitter, but never
-            leaves [reconnect_backoff, max_reconnect_backoff]. Defaults to 15, the
-            minimum Massive asks clients to wait; 0 disables the wait and is meant
-            only for tests.
-        :param max_reconnect_backoff: The longest wait between reconnect
-            attempts, jitter included.
-        :raises ValueError: If reconnect_backoff is negative or greater than
-            max_reconnect_backoff.
+        :param reconnect_backoff: Seconds to wait before reconnecting after an open connection closes. The wait doubles with each consecutive failure, up to max_reconnect_backoff, with random jitter. 0 (the default) reconnects at once.
+        :param max_reconnect_backoff: The longest wait before reconnecting, in seconds.
+        :param reconnect_on_close: Also reconnect when the server closes the connection normally (e.g. code 1000), counting toward max_reconnects. By default, .connect returns then.
+        :param max_consecutive_failures: How many failures in a row .connect allows before it raises the last error. A failure is a connection attempt that fails, or a connection that closes before it has been open for stable_uptime seconds. None (the default) allows any number. max_reconnects applies too.
+        :param stable_uptime: Seconds a connection must stay open to reset the failure count and the backoff.
+        :param raise_fatal_errors: Raise connection errors that retrying will not fix, such as an HTTP 404 during the handshake, instead of retrying them forever. Uses websockets' default process_exception.
+        :raises ValueError: If reconnect_backoff is negative or greater than max_reconnect_backoff.
         :return: A client.
         """
-        if reconnect_backoff < 0 or max_reconnect_backoff < reconnect_backoff:
+        if not 0 <= reconnect_backoff <= max_reconnect_backoff:
             raise ValueError(
                 "need 0 <= reconnect_backoff <= max_reconnect_backoff, got "
                 f"{reconnect_backoff} and {max_reconnect_backoff}"
@@ -115,27 +122,31 @@ class WebSocketClient:
         self.subscribed = False
         self.subs: Set[str] = set()
         self.max_reconnects = max_reconnects
+        self.reconnect_backoff = reconnect_backoff
+        self.max_reconnect_backoff = max_reconnect_backoff
+        self.reconnect_on_close = reconnect_on_close
+        self.max_consecutive_failures = max_consecutive_failures
+        self.stable_uptime = stable_uptime
+        self.raise_fatal_errors = raise_fatal_errors
+        # whether the server sent a max_connections status during the last
+        # handshake: the account has too many connections open
+        self.max_connections_reached = False
         self.websocket: Optional[ClientConnection] = None
         if subscriptions is None:
             subscriptions = []
         self.scheduled_subs: Set[str] = set(subscriptions)
         self.schedule_resub = True
         # guards scheduled_subs and schedule_resub, which subscribe() and
-        # friends change on the caller's thread while connect() reads them on
-        # the event loop's thread
+        # friends change on the caller's thread while connect() reads them
         self._subs_lock = threading.Lock()
-        # topics to subscribe to again even if already subscribed
+        # set_subscriptions() was called since the last update was sent, so
+        # send removals first; guarded by _subs_lock
+        self._removals_first = False
+        # topics resubscribe() asked to send again; guarded by _subs_lock
         self._resend: Set[str] = set()
-        # wake-up of connect() when subscriptions change: the loop it runs
-        # on, whether a wake-up is queued there, whether one arrived since the
-        # last reconciliation, and how to interrupt the recv() in progress
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._wake_pending = False
-        self._woken = False
-        self._recv_timeout: Optional[Any] = None  # asyncio.Timeout
-        self._recv_woken: Optional["asyncio.Future[None]"] = None  # Python 3.10
-        # how long connect() waits for a message before doing housekeeping
-        self._recv_interval = 1.0
+        # while a connection is open: its loop, and the event that wakes its
+        # sender task (see _start_sender)
+        self._wake: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -143,14 +154,11 @@ class WebSocketClient:
             self.json = custom_json
         else:
             self.json = json
-        # close() and request_close() stop connect()
+        # set by request_close(); connect() returns instead of reconnecting
         self._close_requested = threading.Event()
-        self._close_event: Optional[asyncio.Event] = None
-        self._close_task: Optional[asyncio.Future] = None
-        # whether the server said max_connections during the last handshake
-        self.max_connections_reached = False
-        self.reconnect_backoff = reconnect_backoff
-        self.max_reconnect_backoff = max_reconnect_backoff
+        # the event loop connect() runs on, while it runs
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._closing: Optional[asyncio.Future] = None
 
     # https://websockets.readthedocs.io/en/stable/reference/client.html#opening-a-connection
     async def connect(
@@ -165,48 +173,17 @@ class WebSocketClient:
         """
         Connect to websocket server and run `processor(msg)` on every new `msg`.
 
-        When the connection ends, whether the server closed it cleanly or not,
-        or an attempt to connect fails for a reason that may pass, the client
-        waits (see `reconnect_backoff`), reconnects, and subscribes again to
-        every scheduled subscription. Such reasons are network errors (refused,
-        unreachable, timed out, a DNS lookup failure, or a TLS error other
-        than certificate verification), the connection closing during the
-        handshake, and HTTP 408, 429 or 5xx. Other errors, e.g. any other HTTP
-        4xx or a TLS certificate that cannot be verified, are raised at once.
-        It returns once `close()` or `request_close()` is called.
-
-        If the server sends a `max_connections` status during the handshake
-        (the account has too many connections open), `max_connections_reached`
-        is set until a later handshake succeeds, and in raw mode the message is
-        also passed to `processor`. The server then closes the connection, and
-        the client reconnects after the backoff.
-
         :param processor: The callback to process messages.
         :param close_timeout: How long to wait for handshake when calling .close.
+        :param kwargs: Passed to websockets' connect(), e.g. process_exception.
         :raises AuthError: If invalid API key is supplied.
-        :raises Exception: The last error, if more than `max_reconnects`
-            consecutive attempts fail; ConnectionClosedError if the server
-            closed the last connection, even cleanly.
         """
-        self._woken = False
-        with self._subs_lock:
-            self._wake_pending = False
         self._loop = asyncio.get_running_loop()
-        self._close_event = asyncio.Event()
         try:
             await self._connect(processor, close_timeout, **kwargs)
-            # it returned because close was requested, which is now done
-            self._close_requested.clear()
         finally:
-            # subscription changes made from now on must not wake this loop
             self._loop = None
-            with self._subs_lock:
-                self._wake_pending = False
-            self._woken = False
-            self._close_event = None
-            closing, self._close_task = self._close_task, None
-            if closing is not None:
-                await asyncio.gather(closing, return_exceptions=True)
+            self._close_requested.clear()
 
     async def _connect(
         self,
@@ -217,36 +194,42 @@ class WebSocketClient:
         close_timeout: int,
         **kwargs,
     ):
-        # consecutive failed attempts, which set the backoff and are limited
-        # by max_reconnects
+        if self._close_requested.is_set():
+            return
+        # a new connection has no subscriptions, whatever an earlier call left
+        self.subs = set()
+        self.schedule_resub = True
+        reconnects = 0
+        # failed attempts and short-lived connections in a row
         failures = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
 
-        # invalid arguments raise here; each attempt awaits it again
-        connector = connect(
-            self.url, close_timeout=close_timeout, ssl=ssl_context, **kwargs
+        retry_or_raise = kwargs.pop(
+            "process_exception",
+            process_exception if self.raise_fatal_errors else lambda exc: None,
         )
+
+        def on_connect_error(exc: Exception) -> Optional[Exception]:
+            nonlocal failures
+            failures += 1
+            if self._too_many(failures, self.max_consecutive_failures):
+                return exc
+            return retry_or_raise(exc)
+
         last_exc: Optional[Exception] = None
-        delay = 0.0
-        while not self._close_requested.is_set():
-            if failures > 0 and await self._wait_for_close(delay):
-                return
-            try:
-                s = await self._open(connector)
-            except Exception as e:
-                if not self._is_transient(e):
-                    raise
-                last_exc = e
-                failures += 1
-                if self._too_many_failures(failures):
-                    break
-                delay = self._reconnect_delay(failures - 1)
-                logger.warning("connect failed; reconnecting in %.1f s: %s", delay, e)
-                continue
-            if s is None:
+        async for s in connect(
+            self.url,
+            close_timeout=close_timeout,
+            ssl=ssl_context,
+            process_exception=on_connect_error,
+            **kwargs,
+        ):
+            if self._close_requested.is_set():
+                await s.close()  # requested while connecting
                 return
             self.websocket = s
+            connected_at = None
             try:
                 msg = await s.recv()
                 logger.debug("connected: %s", msg)
@@ -261,161 +244,97 @@ class WebSocketClient:
                 logger.debug("authed: %s", auth_msg)
                 if auth_msg_parsed[0]["status"] == "auth_failed":
                     raise AuthError(auth_msg_parsed[0]["message"])
-                self.max_connections_reached = False
-                for frame, parsed in ((msg, msg_parsed), (auth_msg, auth_msg_parsed)):
-                    if any(m.get("status") == "max_connections" for m in parsed):
-                        self.max_connections_reached = True
-                        if self.raw:
-                            await processor(frame)  # type: ignore
-                if not self.max_connections_reached:
-                    failures = 0
+                self.max_connections_reached = any(
+                    m.get("status") == "max_connections"
+                    for m in msg_parsed + auth_msg_parsed
+                )
+                connected_at = time.monotonic()
                 # e.g. max_connections, which the server sends before closing
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
-                while True:
-                    await self._reconcile()
+                # subscription changes go out from a task of their own,
+                # starting with the whole scheduled set
+                sender, wake = self._start_sender()
+                try:
+                    while True:
+                        if sender.done():
+                            self._check_sender(sender)
+                        if self.schedule_resub:
+                            # e.g. set by code that changed scheduled_subs itself
+                            wake.set()
 
-                    cmsg: Optional[Union[List[WebSocketMessage], Union[str, bytes]]] = (
-                        await self._recv(s, timeout=self._recv_interval)
-                    )
-                    if cmsg is None:
+                        try:
+                            cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
+                                await asyncio.wait_for(s.recv(), timeout=1)
+                            )
+                        except asyncio.TimeoutError:
+                            self._flush_server_errors()
+                            continue
+
+                        if not self.raw:
+                            # we know cmsg is Data
+                            msgJson = self.json.loads(cmsg)  # type: ignore
+                            for m in msgJson:
+                                if m["ev"] == "status":
+                                    logger.debug("status: %s", m["message"])
+                            self._log_server_statuses(msgJson)
+                            cmsg = parse(msgJson, logger, self.market)
                         self._flush_server_errors()
-                        continue
 
-                    if not self.raw:
-                        # we know cmsg is Data
-                        msgJson = self.json.loads(cmsg)  # type: ignore
-                        for m in msgJson:
-                            if m["ev"] == "status":
-                                logger.debug("status: %s", m["message"])
-                        self._log_server_statuses(msgJson)
-                        cmsg = parse(msgJson, logger, self.market)
-                    self._flush_server_errors()
-
-                    if len(cmsg) > 0:
-                        await processor(cmsg)  # type: ignore
-            except ConnectionClosed as e:
-                ok = isinstance(e, ConnectionClosedOK)
-                logger.debug("connection closed (%s): %s", "OK" if ok else "ERR", e)
+                        if len(cmsg) > 0:
+                            await processor(cmsg)  # type: ignore
+                finally:
+                    await self._stop_sender(sender)
+            except ConnectionClosedOK as e:
+                logger.debug("connection closed (OK): %s", e)
                 # the server sends a status (e.g. slow_consumer) before closing
                 self._flush_server_errors(force=True)
-                if self._close_requested.is_set():
+                # rcvd_then_sent: the server closed it, rather than close()
+                if not (self.reconnect_on_close and e.rcvd_then_sent):
                     return
-                # the server can close cleanly too, e.g. after max_connections
                 last_exc = e
+            except ConnectionClosedError as e:
+                last_exc = e
+                logger.debug("connection closed (ERR): %s", e)
+                self._flush_server_errors(force=True)
+            if self._close_requested.is_set():
+                return
+            reconnects += 1
+            # keep scheduled_subs, which may hold changes not sent yet,
+            # and subscribe to all of it on the next connection
+            self.subs = set()
+            self.schedule_resub = True
+            if (
+                connected_at is not None
+                and time.monotonic() - connected_at >= self.stable_uptime
+            ):
+                failures = 0
+            else:
                 failures += 1
-                if self._too_many_failures(failures):
-                    break
-                delay = self._reconnect_delay(failures - 1)
-                logger.warning(
-                    "connection closed; reconnecting in %.1f s: %s", delay, e
-                )
-            finally:
-                self.websocket = None
-                # scheduled_subs is the desired set, including changes not sent
-                # yet: keep it, and subscribe all of it on the next connection
-                with self._subs_lock:
-                    self.subs = set()
-                    self.schedule_resub = True
-                await s.close()
+            if self._too_many(reconnects, self.max_reconnects) or self._too_many(
+                failures, self.max_consecutive_failures
+            ):
+                break
+            if self.reconnect_backoff > 0:
+                delay = self._reconnect_delay(failures)
+                logger.debug("reconnecting in %.1f s", delay)
+                await asyncio.sleep(delay)
 
-        if last_exc is not None and self._too_many_failures(failures):
-            if isinstance(last_exc, ConnectionClosedOK):
-                # a clean close is still a failure once connect() gives up
-                raise ConnectionClosedError(
-                    last_exc.rcvd, last_exc.sent, last_exc.rcvd_then_sent
-                ) from last_exc
+        if last_exc is not None:
             raise last_exc
 
-    def _too_many_failures(self, failures: int) -> bool:
-        return self.max_reconnects is not None and failures > self.max_reconnects
-
     @staticmethod
-    def _is_transient(exc: Exception) -> bool:
-        """Whether a failed attempt to connect is worth retrying."""
-        if isinstance(exc, InvalidStatus):
-            status = exc.response.status_code
-            return status >= 500 or status in (408, 429)
-        if isinstance(exc, InvalidMessage):
-            # e.g. the server closed the connection during the handshake
-            return isinstance(exc.__cause__, EOFError)
-        if isinstance(exc, ssl.SSLCertVerificationError):
-            return False
-        # e.g. refused, unreachable, timed out, DNS, or another TLS error
-        return isinstance(exc, (OSError, asyncio.TimeoutError))
+    def _too_many(count: int, limit: Optional[int]) -> bool:
+        return limit is not None and count > limit
 
-    def _reconnect_delay(self, attempt: int) -> float:
-        """
-        The wait before reconnect attempt `attempt`, counting from 0.
-
-        The base doubles from `reconnect_backoff` up to `max_reconnect_backoff`;
-        jitter only lengthens it, by up to 20%, and is clamped to the cap.
-        """
-        # bound the exponent so a long outage cannot overflow the float
-        base = min(
-            self.reconnect_backoff * 2.0 ** min(attempt, 1000),
-            self.max_reconnect_backoff,
-        )
-        return random.uniform(base, min(1.2 * base, self.max_reconnect_backoff))
-
-    async def _open(
-        self, connector: Awaitable[ClientConnection]
-    ) -> Optional[ClientConnection]:
-        """Open a connection, or return None if close is requested first."""
-        assert self._close_event is not None
-        attempt = asyncio.ensure_future(connector)
-        closing = asyncio.ensure_future(self._close_event.wait())
-        try:
-            await asyncio.wait({attempt, closing}, return_when=asyncio.FIRST_COMPLETED)
-        except BaseException:
-            # e.g. connect() was cancelled: don't leave a connection open
-            closing.cancel()
-            await asyncio.shield(self._abandon(attempt))
-            raise
-        stop = closing.done() or self._close_requested.is_set()
-        closing.cancel()
-        if not stop:
-            return attempt.result()
-        await self._abandon(attempt)
-        return None
-
-    @staticmethod
-    async def _abandon(
-        attempt: "asyncio.Future[ClientConnection]", timeout: float = 1.0
-    ):
-        """Cancel an attempt to connect, or close the connection it opened."""
-        attempt.cancel()
-        await asyncio.wait({attempt}, timeout=timeout)
-        if not attempt.done():
-            # it has not taken the cancellation yet (e.g. a pending connect on
-            # Windows): don't wait for it, but close whatever it opens
-            attempt.add_done_callback(WebSocketClient._close_opened)
-            return
-        if WebSocketClient._opened(attempt):
-            await attempt.result().close()
-
-    # tasks closing connections that abandoned attempts opened late
-    _late_closes: Set["asyncio.Future[None]"] = set()
-
-    @staticmethod
-    def _opened(attempt: "asyncio.Future[ClientConnection]") -> bool:
-        return not attempt.cancelled() and attempt.exception() is None
-
-    @staticmethod
-    def _close_opened(attempt: "asyncio.Future[ClientConnection]"):
-        if WebSocketClient._opened(attempt):
-            task = asyncio.ensure_future(attempt.result().close())
-            WebSocketClient._late_closes.add(task)
-            task.add_done_callback(WebSocketClient._late_closes.discard)
-
-    async def _wait_for_close(self, timeout: float) -> bool:
-        """Wait up to `timeout` seconds; return whether close was requested."""
-        assert self._close_event is not None
-        try:
-            await asyncio.wait_for(self._close_event.wait(), timeout)
-        except asyncio.TimeoutError:
-            pass
-        return self._close_requested.is_set()
+    def _reconnect_delay(self, failures: int) -> float:
+        # doubles with each failure in a row, up to the cap; jitter adds up
+        # to 20%, and at the cap draws from [cap / 1.2, cap] instead
+        base, cap = self.reconnect_backoff, self.max_reconnect_backoff
+        delay = min(base * 2.0 ** min(max(failures - 1, 0), 64), cap)
+        if delay < cap:
+            return random.uniform(delay, min(delay * 1.2, cap))
+        return random.uniform(max(base, cap / 1.2), cap)
 
     def _ssl_context(self) -> Optional[ssl.SSLContext]:
         # darwin needs some extra <3
@@ -488,109 +407,72 @@ class WebSocketClient:
             self.json.dumps({"action": "unsubscribe", "params": subs})
         )
 
-    async def _recv(
-        self, s: ClientConnection, timeout: float
-    ) -> Optional[Union[str, bytes]]:
-        """
-        Receive the next message, or return None after ``timeout`` seconds or
-        as soon as subscriptions change, whichever comes first.
+    def _start_sender(self) -> Tuple["asyncio.Task[None]", asyncio.Event]:
+        """Start the task that sends subscription changes; see _notify."""
+        wake = asyncio.Event()
+        wake.set()  # first, the whole scheduled set
+        self._wake = (asyncio.get_running_loop(), wake)
+        return asyncio.ensure_future(self._send_changes(wake)), wake
 
-        recv() is cancellation-safe: a message it has not returned yet is
-        returned by the next call, so interrupting it loses nothing.
-        """
-        if self._woken:
-            return None
-        if sys.version_info >= (3, 11):
-            # _wake_up() moves the deadline to now; no extra task per message
-            try:
-                async with asyncio.timeout(timeout) as self._recv_timeout:
-                    return await s.recv()
-            except TimeoutError:
-                return None
-            finally:
-                self._recv_timeout = None
-        woken: "asyncio.Future[None]" = asyncio.get_running_loop().create_future()
-        self._recv_woken = woken
-        recv = asyncio.ensure_future(s.recv())
-        # asyncio.wait() takes futures of one type
-        waiters: Set["asyncio.Future[Any]"] = {recv, woken}
-        try:
-            await asyncio.wait(
-                waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
-            )
-        finally:
-            self._recv_woken = None
-            if not recv.done():
-                recv.cancel()
-                # recv() must not be called again until this one has finished
-                await asyncio.wait({recv})
-        if recv.cancelled():
-            return None
-        return recv.result()
+    async def _send_changes(self, wake: asyncio.Event):
+        # The only sender of subscription messages, so messages for two
+        # changes never interleave. Sending while connect() waits in recv() is
+        # safe: in websockets, only two concurrent recv() calls conflict.
+        while True:
+            await wake.wait()
+            wake.clear()
+            await self._reconcile()
+
+    def _check_sender(self, sender: "asyncio.Task[None]"):
+        # raise what ended the sender, unless the connection closed: then
+        # recv() raises too, once the messages already received are read
+        if sender.cancelled():
+            return
+        exc = sender.exception()
+        if exc is not None and not isinstance(
+            exc, (ConnectionClosedOK, ConnectionClosedError)
+        ):
+            raise exc
+
+    async def _stop_sender(self, sender: "asyncio.Task[None]"):
+        self._wake = None
+        sender.cancel()
+        await asyncio.wait({sender})  # does not raise
+        self._check_sender(sender)
 
     def _notify(self):
-        """
-        Wake ``connect()`` so it applies scheduled changes now rather than
-        after its ``recv`` timeout. Safe to call from any thread.
-        """
-        loop = self._loop
-        if loop is None:
+        """Wake the sender, if a connection is open. Safe from any thread."""
+        waker = self._wake
+        if waker is None:
             return
-        with self._subs_lock:
-            # one queued wake-up covers every change made before it runs
-            if self._wake_pending:
-                return
-            self._wake_pending = True
+        loop, wake = waker
         try:
-            loop.call_soon_threadsafe(self._wake_up)
+            loop.call_soon_threadsafe(wake.set)
         except RuntimeError:
-            # the loop is closed: connect() is no longer running
-            with self._subs_lock:
-                self._wake_pending = False
-
-    def _wake_up(self):
-        # runs on the loop, before it reads the changes it is woken for
-        with self._subs_lock:
-            self._wake_pending = False
-        self._woken = True
-        timeout = self._recv_timeout
-        # an expiring timeout has already cancelled recv(), and rescheduling
-        # it would raise
-        if timeout is not None and not timeout.expired():
-            timeout.reschedule(asyncio.get_running_loop().time())
-        if self._recv_woken is not None and not self._recv_woken.done():
-            self._recv_woken.set_result(None)
+            pass  # the loop is closed
 
     async def _reconcile(self):
-        """
-        Send the frames that move the server from ``subs`` to ``scheduled_subs``.
-
-        Runs on the event loop's thread. The scheduled set is copied under the
-        lock, so ``subscribe()`` and ``unsubscribe()`` may run concurrently on
-        other threads; anything they schedule meanwhile is applied on the next
-        call.
-        """
-        # clear before reading, so a change made after the copy wakes the loop
-        self._woken = False
+        """Send the changes that move the server from subs to scheduled_subs."""
         with self._subs_lock:
             if not self.schedule_resub:
                 return
             desired = set(self.scheduled_subs)
-            resend = self._resend
-            self._resend = set()
+            removals_first, self._removals_first = self._removals_first, False
+            resend, self._resend = self._resend, set()
             self.schedule_resub = False
         logger.debug("reconciling: %s %s", self.subs, desired)
+        added = desired.difference(self.subs) | resend.intersection(desired)
+        removed = self.subs.difference(desired)
         try:
-            # unsubscribe first, so a client at the server's subscription limit
-            # can swap topics
-            await self._unsubscribe(self.subs.difference(desired))
-            await self._subscribe(
-                desired.difference(self.subs) | resend.intersection(desired)
-            )
+            if removals_first:
+                await self._unsubscribe(removed)
+                await self._subscribe(added)
+            else:
+                await self._subscribe(added)
+                await self._unsubscribe(removed)
         except BaseException:
-            # e.g. the connection closed: try again on the next connection
+            # e.g. the connection closed: send it all on the next connection
             with self._subs_lock:
-                self._resend |= resend
                 self.schedule_resub = True
             raise
         self.subs = desired
@@ -605,134 +487,119 @@ class WebSocketClient:
 
         return split
 
-    def _parse_subscriptions(
-        self, subscriptions: Iterable[str]
-    ) -> List[Tuple[str, str, str]]:
+    @_changes_subscriptions
+    def subscribe(self, *subscriptions: str):
         """
-        Return ``(subscription, channel, symbol)`` for each well-formed
-        subscription, skipping (and logging) the rest. Parsing happens before
-        taking the lock, so nothing is logged while it is held.
+        Subscribe to given subscriptions. Safe to call from any thread.
+
+        :param subscriptions: Subscriptions (args)
         """
-        parsed = []
         for s in subscriptions:
             topic, sym = self._parse_subscription(s)
-            if topic is not None:
-                parsed.append((s, topic, sym))
-        return parsed
-
-    def _collapse(self, channel: str, keep: Optional[str] = None):
-        """
-        Unschedule every topic on ``channel`` (e.g. ``T``) except ``keep``.
-
-        Matches the channel exactly, so collapsing ``A`` leaves ``AM.AAPL``,
-        and covers topics that are scheduled but not yet subscribed. Call with
-        the lock held.
-        """
-        for t in list(self.scheduled_subs):
-            if t != keep and t.split(".", 1)[0].strip() == channel:
-                self.scheduled_subs.discard(t)
-
-    def subscribe(self, *subscriptions: str, collapse: bool = True):
-        """
-        Subscribe to given subscriptions.
-
-        Safe to call from any thread, before or while ``connect()`` runs.
-
-        :param subscriptions: Subscriptions (args)
-        :param collapse: If true (the default), subscribing to a wildcard such
-            as ``T.*`` also unsubscribes the other topics on that channel
-            (``T.AAPL``, but not ``TX.AAPL``). If false, they stay subscribed.
-        """
-        parsed = self._parse_subscriptions(subscriptions)
-        with self._subs_lock:
-            for s, topic, sym in parsed:
-                self.scheduled_subs.add(s)
-                if collapse and sym == "*":
-                    self._collapse(topic, keep=s)
-
-            self.schedule_resub = True
-        self._notify()
-        for s, _, _ in parsed:
+            if topic == None:
+                continue
             logger.debug("sub desired: %s", s)
+            self.scheduled_subs.add(s)
+            # If user subs to X.*, remove other X.\w+
+            if sym == "*":
+                for t in list(self.subs):
+                    if t != s and t.strip().split(".", 1)[0] == topic:
+                        self.scheduled_subs.discard(t)
 
-    def unsubscribe(self, *subscriptions: str, collapse: bool = True):
+        self.schedule_resub = True
+
+    @_changes_subscriptions
+    def unsubscribe(self, *subscriptions: str):
         """
-        Unsubscribe from given subscriptions.
-
-        Safe to call from any thread, before or while ``connect()`` runs.
+        Unsubscribe from given subscriptions. Safe to call from any thread.
 
         :param subscriptions: Subscriptions (args)
-        :param collapse: If true (the default), unsubscribing from a wildcard
-            such as ``T.*`` also unsubscribes every other topic on that channel
-            (``T.AAPL``, but not ``TX.AAPL``). If false, only the wildcard is
-            removed.
         """
-        parsed = self._parse_subscriptions(subscriptions)
-        with self._subs_lock:
-            for s, topic, sym in parsed:
-                self.scheduled_subs.discard(s)
-                if collapse and sym == "*":
-                    self._collapse(topic)
-
-            self.schedule_resub = True
-        self._notify()
-        for s, _, _ in parsed:
+        for s in subscriptions:
+            topic, sym = self._parse_subscription(s)
+            if topic == None:
+                continue
             logger.debug("sub undesired: %s", s)
+            self.scheduled_subs.discard(s)
 
-    def set_subscriptions(self, desired: Iterable[str], *, resend: Iterable[str] = ()):
-        """
-        Replace the subscriptions with ``desired``, in one step.
+            # If user unsubs to X.*, remove other X.\w+
+            if sym == "*":
+                for t in list(self.subs):
+                    if t.strip().split(".", 1)[0] == topic:
+                        self.scheduled_subs.discard(t)
 
-        Safe to call from any thread, before or while ``connect()`` runs. The
-        client sends at most one unsubscribe message, for the topics no longer
-        desired, followed by at most one subscribe message, for the new topics
-        plus those in ``resend``. Topics in both the old and the new set are
-        left alone unless they are in ``resend``.
+        self.schedule_resub = True
 
-        Use ``resend`` to subscribe again to topics the client already
-        considers subscribed, e.g. ones the server never acknowledged.
-        Wildcards such as ``T.*`` are ordinary topics here: nothing collapses.
-
-        :param desired: Every topic to be subscribed to afterwards, e.g.
-            ``["T.AAPL", "Q.*"]``. Malformed topics are logged and skipped.
-        :param resend: Topics of ``desired`` to send in the subscribe message
-            even if already subscribed. Each call replaces the resends of
-            earlier calls that have not been sent yet.
-        :raises ValueError: If a topic in ``resend`` is not in ``desired``; the
-            subscriptions are then left unchanged.
-        """
-        topics = {s for s, _, _ in self._parse_subscriptions(desired)}
-        again = set(resend)
-        unknown = again.difference(topics)
-        if unknown:
-            raise ValueError(f"resend topics not in desired: {sorted(unknown)}")
-        with self._subs_lock:
-            self.scheduled_subs = topics
-            self._resend = again
-            self.schedule_resub = True
-        self._notify()
-        logger.debug("subs desired: %s (resend %s)", topics, again)
-
+    @_changes_subscriptions
     def unsubscribe_all(self):
         """
-        Unsubscribe from all subscriptions.
-
-        Safe to call from any thread, before or while ``connect()`` runs.
+        Unsubscribe from all subscriptions. Safe to call from any thread.
         """
-        with self._subs_lock:
-            self.scheduled_subs = set()
-            self.schedule_resub = True
-        self._notify()
+        self.scheduled_subs = set()
+        self.schedule_resub = True
+
+    @_changes_subscriptions
+    def set_subscriptions(self, desired: Iterable[str]):
+        """
+        Replace all subscriptions with ``desired``, in one step. Safe to call
+        from any thread.
+
+        The client sends one unsubscribe message for the topics no longer
+        desired, then one subscribe message for the new ones, together with
+        any changes from ``subscribe()`` or ``unsubscribe()`` not sent yet.
+        Removals go first, so a client at the server's subscription limit
+        can swap topics; data that a removed and an added topic both cover
+        (e.g. ``T.AAPL`` replaced by ``T.*``) is not delivered in between.
+        Wildcards such as ``T.*`` are ordinary topics here.
+
+        :param desired: Every topic to be subscribed to afterwards. Malformed
+            topics are logged and skipped.
+        """
+        topics = {s for s in desired if self._parse_subscription(s)[0] is not None}
+        self.scheduled_subs = topics
+        self._removals_first = True
+        self.schedule_resub = True
+
+    @_changes_subscriptions
+    def resubscribe(self, *topics: str):
+        """
+        Send a subscribe message again for topics already subscribed, e.g.
+        ones the server never acknowledged. Safe to call from any thread.
+
+        :param topics: Topics to send again (args). Malformed topics are
+            logged and skipped.
+        :raises ValueError: If a topic is not subscribed or scheduled to be;
+            nothing is sent then.
+        """
+        again = {s for s in topics if self._parse_subscription(s)[0] is not None}
+        unknown = again.difference(self.scheduled_subs)
+        if unknown:
+            raise ValueError(f"not subscribed: {sorted(unknown)}")
+        self._resend |= again
+        self.schedule_resub = True
+
+    async def close(self):
+        """
+        Close the websocket connection.
+        """
+        logger.debug("closing")
+        self._flush_server_errors(force=True)
+
+        if self.websocket:
+            await self.websocket.close()
+            self.websocket = None
+        else:
+            logger.warning("no websocket open to close")
 
     def request_close(self):
         """
-        Close the websocket connection and make `connect()` return.
+        Close the websocket connection and make ``connect()`` return instead
+        of reconnecting. Unlike ``close()``, this is safe to call from any
+        thread, e.g. to stop ``run()``, and it does not wait.
 
-        Unlike `close()`, this can be called from any thread, and it does not
-        wait: `connect()` returns soon after, including while it is
-        connecting or waiting to reconnect. If no `connect()` is running, the
-        next one returns without connecting; the request stays pending until a
-        `connect()` returns because of it.
+        An attempt to connect, or a wait before reconnecting, is not
+        interrupted: ``connect()`` returns once it ends. If ``connect()`` is
+        not running, the next call returns at once.
         """
         logger.debug("close requested")
         self._close_requested.set()
@@ -740,35 +607,11 @@ class WebSocketClient:
         if loop is None:
             return
         try:
-            loop.call_soon_threadsafe(self._on_close_requested)
+            loop.call_soon_threadsafe(self._close_soon)
         except RuntimeError:
-            # the loop is closed, so connect() has returned
-            pass
+            pass  # the loop is closed, so connect() has returned
 
-    def _on_close_requested(self):
-        # runs on the event loop of connect(); the request may be stale, e.g.
-        # queued for an earlier connect() on the same loop
-        if not self._close_requested.is_set():
-            return
-        if self._close_event is not None:
-            self._close_event.set()
+    def _close_soon(self):
+        # on connect()'s loop; recv() then raises and connect() returns
         if self.websocket is not None:
-            self._close_task = asyncio.ensure_future(self.websocket.close())
-
-    async def close(self):
-        """
-        Close the websocket connection and stop `connect()` from reconnecting.
-        """
-        logger.debug("closing")
-        if self._loop is not None:
-            self._close_requested.set()
-            if self._close_event is not None:
-                self._close_event.set()
-        self._flush_server_errors(force=True)
-
-        if self.websocket:
-            await self.websocket.close()
-            self.websocket = None
-        elif self._loop is None:
-            # (while connect() runs, it may be between connections)
-            logger.warning("no websocket open to close")
+            self._closing = asyncio.ensure_future(self.websocket.close())

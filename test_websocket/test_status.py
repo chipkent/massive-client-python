@@ -2,31 +2,10 @@ from massive import WebSocketClient
 from massive.websocket import logger
 from base_ws import BaseTest
 from mock_server import port
-from websockets.asyncio.client import connect
-from websockets.exceptions import ConnectionClosedError
 import asyncio
 
 
 class StatusTest(BaseTest):
-    async def asyncSetUp(self):
-        await super().asyncSetUp()
-        # wait until the mock server is accepting connections
-        for _ in range(100):
-            try:
-                async with connect(f"ws://localhost:{port}"):
-                    return
-            except OSError:
-                await asyncio.sleep(0.05)
-        self.fail("mock server did not start")
-
-    async def asyncTearDown(self):
-        # wait for the server to shut down so the next test can bind the port
-        self.task.cancel()
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
-
     async def run_client(self, *subscriptions):
         c = WebSocketClient(api_key="", feed=f"localhost:{port}", secure=False)
         c.subscribe(*subscriptions)
@@ -66,15 +45,11 @@ class StatusTest(BaseTest):
         self.assertEqual(logs.output, ["WARNING:WebSocketClient:sentinel"])
 
     async def test_disconnect_reason_is_logged(self):
-        # the server sends a status and then closes the connection normally;
-        # the client would reconnect, so let it give up instead
+        # the server sends a status and then closes the connection normally
         with self.assertLogs("WebSocketClient", level="WARNING") as logs:
-            c = WebSocketClient(
-                api_key="", feed=f"localhost:{port}", secure=False, max_reconnects=0
-            )
+            c = WebSocketClient(api_key="", feed=f"localhost:{port}", secure=False)
             c.subscribe("SLOW.X")
-            with self.assertRaises(ConnectionClosedError):
-                await asyncio.wait_for(c.connect(lambda msgs: asyncio.sleep(0)), 5)
+            await asyncio.wait_for(c.connect(lambda msgs: asyncio.sleep(0)), 5)
         self.assertEqual(
             logs.output,
             [
@@ -100,3 +75,13 @@ class StatusTest(BaseTest):
                 "Maximum number of websocket connections exceeded."
             ],
         )
+
+    async def test_invalid_subscription_is_logged(self):
+        # a topic without a channel prefix is skipped with a warning
+        c = WebSocketClient(api_key="")
+        with self.assertLogs("WebSocketClient", level="WARNING") as logs:
+            c.subscribe("AAPL")
+        self.assertEqual(
+            logs.output, ["WARNING:WebSocketClient:invalid subscription: AAPL"]
+        )
+        self.assertEqual(c.scheduled_subs, set())
