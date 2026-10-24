@@ -103,6 +103,9 @@ class WebSocketClient:
         :param close_timeout: How long to wait for handshake when calling .close.
         :raises AuthError: If invalid API key is supplied.
         """
+        # a new connection has no subscriptions, whatever an earlier call left
+        self.subs = set()
+        self.schedule_resub = True
         reconnects = 0
         logger.debug("connect: %s", self.url)
         ssl_context = self._ssl_context()
@@ -175,7 +178,8 @@ class WebSocketClient:
                 logger.debug("connection closed (ERR): %s", e)
                 self._flush_server_errors(force=True)
                 reconnects += 1
-                self.scheduled_subs = set(self.subs)
+                # keep scheduled_subs, which may hold changes not sent yet,
+                # and subscribe to all of it on the next connection
                 self.subs = set()
                 self.schedule_resub = True
                 if self.max_reconnects is not None and reconnects > self.max_reconnects:
