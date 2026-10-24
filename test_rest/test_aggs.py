@@ -99,7 +99,9 @@ class AggsTest(BaseTest):
         self.assertEqual(aggs, expected)
 
     def test_get_daily_open_close_crypto(self):
-        aggs = self.c.get_daily_open_close_crypto("BTC", "USD", "2020-10-09", True)
+        aggs = self.c.get_daily_open_close_crypto(
+            "BTC", "USD", "2020-10-09", adjusted=True
+        )
         expected = DailyOpenCloseCrypto(
             symbol="BTC-USD",
             is_utc=True,
@@ -148,6 +150,7 @@ class AggsTest(BaseTest):
 
     def test_get_previous_close_agg(self):
         aggs = self.c.get_previous_close_agg("AAPL")
+        self.assertIsInstance(aggs, list)
         expected = [
             PreviousCloseAgg(
                 ticker="AAPL",

@@ -1,4 +1,4 @@
-from typing import Optional, Any, Dict, List, Union, Iterator
+from typing import Optional, Any, Dict, List, Union, Iterator, Literal, overload
 from urllib3 import HTTPResponse
 from datetime import datetime, date
 
@@ -22,6 +22,40 @@ class EconomyClient(BaseClient):
     (aligned with the paths from /fed/v1/...)
     """
 
+    @overload
+    def list_treasury_yields(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[TreasuryYield]: ...
+    @overload
+    def list_treasury_yields(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
     def list_treasury_yields(
         self,
         date: Optional[str] = None,
@@ -36,7 +70,22 @@ class EconomyClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[TreasuryYield], HTTPResponse]:
+    ) -> Union[Iterator[TreasuryYield], HTTPResponse]: ...
+    def list_treasury_yields(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[TreasuryYield], HTTPResponse]:
         """
         Retrieve treasury yield data.
 
@@ -52,7 +101,7 @@ class EconomyClient(BaseClient):
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return List[TreasuryYield].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of TreasuryYield objects or HTTPResponse if raw=True.
+        :return: An iterator of TreasuryYield objects or HTTPResponse if raw=True.
         """
         url = "/fed/v1/treasury-yields"
 
@@ -65,6 +114,52 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_inflation(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FedInflation]: ...
+    @overload
+    def list_inflation(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_inflation(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FedInflation], HTTPResponse]: ...
     def list_inflation(
         self,
         date: Optional[Union[str, date]] = None,
@@ -91,6 +186,52 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_inflation_expectations(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FedInflationExpectations]: ...
+    @overload
+    def list_inflation_expectations(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_inflation_expectations(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FedInflationExpectations], HTTPResponse]: ...
     def list_inflation_expectations(
         self,
         date: Optional[Union[str, date]] = None,
@@ -132,6 +273,52 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_labor_market_indicators(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FedLaborMarket]: ...
+    @overload
+    def list_labor_market_indicators(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_labor_market_indicators(
+        self,
+        date: Optional[str] = None,
+        date_any_of: Optional[str] = None,
+        date_gt: Optional[str] = None,
+        date_gte: Optional[str] = None,
+        date_lt: Optional[str] = None,
+        date_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FedLaborMarket], HTTPResponse]: ...
     def list_labor_market_indicators(
         self,
         date: Optional[str] = None,
@@ -172,6 +359,7 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
     def list_funding_conditions(
         self,
         date: Optional[Union[str, date]] = None,
@@ -180,7 +368,49 @@ class EconomyClient(BaseClient):
         date_lt: Optional[Union[str, date]] = None,
         date_lte: Optional[Union[str, date]] = None,
         limit: Optional[int] = None,
-        sort: Optional[Union[str, Sort]] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[FedFundingConditions]: ...
+    @overload
+    def list_funding_conditions(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_funding_conditions(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[FedFundingConditions], HTTPResponse]: ...
+    def list_funding_conditions(
+        self,
+        date: Optional[Union[str, date]] = None,
+        date_gt: Optional[Union[str, date]] = None,
+        date_gte: Optional[Union[str, date]] = None,
+        date_lt: Optional[Union[str, date]] = None,
+        date_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
@@ -194,7 +424,7 @@ class EconomyClient(BaseClient):
         :param date_lt: Filter less than the value.
         :param date_lte: Filter less than or equal to the value.
         :param limit: Limit the maximum number of results returned. Defaults to '100' if not specified. The maximum allowed limit is '50000'.
-        :param sort: A comma separated list of sort columns. For each column, append '.asc' or '.desc' to specify the sort direction. The sort column defaults to 'date' if not specified. The sort order defaults to 'asc' if not specified.
+        :param sort: A comma separated list of sort columns. For each column, append '.asc' or '.desc' to specify the sort direction, e.g. "date.desc". The sort column defaults to 'date' if not specified. The sort order defaults to 'asc' if not specified. The value is sent as given.
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return Iterator[FedFundingConditions].
         :param options: RequestOptionBuilder for additional headers or params.
@@ -211,6 +441,103 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_eu_merchant_aggregates(
+        self,
+        transaction_date: Optional[Union[str, date]] = None,
+        transaction_date_gt: Optional[Union[str, date]] = None,
+        transaction_date_gte: Optional[Union[str, date]] = None,
+        transaction_date_lt: Optional[Union[str, date]] = None,
+        transaction_date_lte: Optional[Union[str, date]] = None,
+        name: Optional[str] = None,
+        name_any_of: Optional[str] = None,
+        name_gt: Optional[str] = None,
+        name_gte: Optional[str] = None,
+        name_lt: Optional[str] = None,
+        name_lte: Optional[str] = None,
+        user_country: Optional[str] = None,
+        user_country_any_of: Optional[str] = None,
+        channel: Optional[str] = None,
+        channel_any_of: Optional[str] = None,
+        consumer_type: Optional[str] = None,
+        consumer_type_any_of: Optional[str] = None,
+        parent_name: Optional[str] = None,
+        parent_name_any_of: Optional[str] = None,
+        parent_name_gt: Optional[str] = None,
+        parent_name_gte: Optional[str] = None,
+        parent_name_lt: Optional[str] = None,
+        parent_name_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[EUMerchantAggregate]: ...
+    @overload
+    def list_eu_merchant_aggregates(
+        self,
+        transaction_date: Optional[Union[str, date]] = None,
+        transaction_date_gt: Optional[Union[str, date]] = None,
+        transaction_date_gte: Optional[Union[str, date]] = None,
+        transaction_date_lt: Optional[Union[str, date]] = None,
+        transaction_date_lte: Optional[Union[str, date]] = None,
+        name: Optional[str] = None,
+        name_any_of: Optional[str] = None,
+        name_gt: Optional[str] = None,
+        name_gte: Optional[str] = None,
+        name_lt: Optional[str] = None,
+        name_lte: Optional[str] = None,
+        user_country: Optional[str] = None,
+        user_country_any_of: Optional[str] = None,
+        channel: Optional[str] = None,
+        channel_any_of: Optional[str] = None,
+        consumer_type: Optional[str] = None,
+        consumer_type_any_of: Optional[str] = None,
+        parent_name: Optional[str] = None,
+        parent_name_any_of: Optional[str] = None,
+        parent_name_gt: Optional[str] = None,
+        parent_name_gte: Optional[str] = None,
+        parent_name_lt: Optional[str] = None,
+        parent_name_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_eu_merchant_aggregates(
+        self,
+        transaction_date: Optional[Union[str, date]] = None,
+        transaction_date_gt: Optional[Union[str, date]] = None,
+        transaction_date_gte: Optional[Union[str, date]] = None,
+        transaction_date_lt: Optional[Union[str, date]] = None,
+        transaction_date_lte: Optional[Union[str, date]] = None,
+        name: Optional[str] = None,
+        name_any_of: Optional[str] = None,
+        name_gt: Optional[str] = None,
+        name_gte: Optional[str] = None,
+        name_lt: Optional[str] = None,
+        name_lte: Optional[str] = None,
+        user_country: Optional[str] = None,
+        user_country_any_of: Optional[str] = None,
+        channel: Optional[str] = None,
+        channel_any_of: Optional[str] = None,
+        consumer_type: Optional[str] = None,
+        consumer_type_any_of: Optional[str] = None,
+        parent_name: Optional[str] = None,
+        parent_name_any_of: Optional[str] = None,
+        parent_name_gt: Optional[str] = None,
+        parent_name_gte: Optional[str] = None,
+        parent_name_lt: Optional[str] = None,
+        parent_name_lte: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[EUMerchantAggregate], HTTPResponse]: ...
     def list_eu_merchant_aggregates(
         self,
         transaction_date: Optional[Union[str, date]] = None,
@@ -261,6 +588,106 @@ class EconomyClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_eu_merchant_hierarchy(
+        self,
+        lookup_name: Optional[str] = None,
+        lookup_name_any_of: Optional[str] = None,
+        lookup_name_gt: Optional[str] = None,
+        lookup_name_gte: Optional[str] = None,
+        lookup_name_lt: Optional[str] = None,
+        lookup_name_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        listing_status: Optional[str] = None,
+        listing_status_any_of: Optional[str] = None,
+        active_from: Optional[Union[str, date]] = None,
+        active_from_gt: Optional[Union[str, date]] = None,
+        active_from_gte: Optional[Union[str, date]] = None,
+        active_from_lt: Optional[Union[str, date]] = None,
+        active_from_lte: Optional[Union[str, date]] = None,
+        active_to: Optional[Union[str, date]] = None,
+        active_to_gt: Optional[Union[str, date]] = None,
+        active_to_gte: Optional[Union[str, date]] = None,
+        active_to_lt: Optional[Union[str, date]] = None,
+        active_to_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[EUMerchantHierarchy]: ...
+    @overload
+    def list_eu_merchant_hierarchy(
+        self,
+        lookup_name: Optional[str] = None,
+        lookup_name_any_of: Optional[str] = None,
+        lookup_name_gt: Optional[str] = None,
+        lookup_name_gte: Optional[str] = None,
+        lookup_name_lt: Optional[str] = None,
+        lookup_name_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        listing_status: Optional[str] = None,
+        listing_status_any_of: Optional[str] = None,
+        active_from: Optional[Union[str, date]] = None,
+        active_from_gt: Optional[Union[str, date]] = None,
+        active_from_gte: Optional[Union[str, date]] = None,
+        active_from_lt: Optional[Union[str, date]] = None,
+        active_from_lte: Optional[Union[str, date]] = None,
+        active_to: Optional[Union[str, date]] = None,
+        active_to_gt: Optional[Union[str, date]] = None,
+        active_to_gte: Optional[Union[str, date]] = None,
+        active_to_lt: Optional[Union[str, date]] = None,
+        active_to_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_eu_merchant_hierarchy(
+        self,
+        lookup_name: Optional[str] = None,
+        lookup_name_any_of: Optional[str] = None,
+        lookup_name_gt: Optional[str] = None,
+        lookup_name_gte: Optional[str] = None,
+        lookup_name_lt: Optional[str] = None,
+        lookup_name_lte: Optional[str] = None,
+        ticker: Optional[str] = None,
+        ticker_any_of: Optional[str] = None,
+        ticker_gt: Optional[str] = None,
+        ticker_gte: Optional[str] = None,
+        ticker_lt: Optional[str] = None,
+        ticker_lte: Optional[str] = None,
+        listing_status: Optional[str] = None,
+        listing_status_any_of: Optional[str] = None,
+        active_from: Optional[Union[str, date]] = None,
+        active_from_gt: Optional[Union[str, date]] = None,
+        active_from_gte: Optional[Union[str, date]] = None,
+        active_from_lt: Optional[Union[str, date]] = None,
+        active_from_lte: Optional[Union[str, date]] = None,
+        active_to: Optional[Union[str, date]] = None,
+        active_to_gt: Optional[Union[str, date]] = None,
+        active_to_gte: Optional[Union[str, date]] = None,
+        active_to_lt: Optional[Union[str, date]] = None,
+        active_to_lte: Optional[Union[str, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[EUMerchantHierarchy], HTTPResponse]: ...
     def list_eu_merchant_hierarchy(
         self,
         lookup_name: Optional[str] = None,
