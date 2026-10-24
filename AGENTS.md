@@ -51,6 +51,7 @@ The OpenAPI spec at https://api.massive.com/openapi is the source of truth for p
    - Single-object endpoints are named `get_<...>` and call `self._get(...)`.
    - Every query param is a keyword argument defaulting to `None`. Write range filters as `x_gt`, `x_gte`, `x_lt`, `x_lte`, `x_any_of`; `_get_params` turns them into `x.gt` and so on.
    - Always end the signature with `params: Optional[Dict[str, Any]] = None, raw: bool = False, options: Optional[RequestOptionBuilder] = None`.
+   - Precede the method with three `@overload`s that copy its signature, so callers get the precise type for each value of `raw`: `raw: Literal[False] = False` returns the model type (`Iterator[Model]`, `List[Model]` or `Model`); `*, raw: Literal[True]` (keyword-only) returns `HTTPResponse`; and `raw: bool = False` returns the full `Union`. Copy an existing method, such as `list_aggs` in `massive/rest/aggs.py`.
 4. **New domain only.** Create a `BaseClient` subclass and add it to `RESTClient`'s bases in `massive/rest/__init__.py`.
 5. **Tests, examples, docs.** For core endpoints, add a fixture under `test_rest/mocks/<url path>.json`, a test in `test_rest/test_<domain>.py`, an example in `examples/rest/`, and an `automethod` entry in `docs/source/*.rst`.
 6. Run `make lint` and `make test`.
