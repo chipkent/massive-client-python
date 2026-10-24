@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, Union, Iterator
+from typing import Optional, Any, Dict, Union, Iterator, Literal, overload
 from .models import (
     Quote,
     LastQuote,
@@ -17,6 +17,55 @@ from .models.request import RequestOptionBuilder
 
 # https://massive.com/docs/stocks
 class QuotesClient(BaseClient):
+    @overload
+    def list_quotes(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[Quote]: ...
+    @overload
+    def list_quotes(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def list_quotes(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[Quote], HTTPResponse]: ...
     def list_quotes(
         self,
         ticker: str,
@@ -58,6 +107,31 @@ class QuotesClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_last_quote(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> LastQuote: ...
+    @overload
+    def get_last_quote(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_last_quote(
+        self,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[LastQuote, HTTPResponse]: ...
     def get_last_quote(
         self,
         ticker: str,
@@ -84,6 +158,34 @@ class QuotesClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_last_forex_quote(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> LastForexQuote: ...
+    @overload
+    def get_last_forex_quote(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_last_forex_quote(
+        self,
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[LastForexQuote, HTTPResponse]: ...
     def get_last_forex_quote(
         self,
         from_: str,
@@ -111,6 +213,40 @@ class QuotesClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_real_time_currency_conversion(
+        self,
+        from_: str,
+        to: str,
+        amount: Optional[float] = None,
+        precision: Union[int, Precision] = 2,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> RealTimeCurrencyConversion: ...
+    @overload
+    def get_real_time_currency_conversion(
+        self,
+        from_: str,
+        to: str,
+        amount: Optional[float] = None,
+        precision: Union[int, Precision] = 2,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_real_time_currency_conversion(
+        self,
+        from_: str,
+        to: str,
+        amount: Optional[float] = None,
+        precision: Union[int, Precision] = 2,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[RealTimeCurrencyConversion, HTTPResponse]: ...
     def get_real_time_currency_conversion(
         self,
         from_: str,
