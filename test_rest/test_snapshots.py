@@ -26,6 +26,9 @@ from massive.rest.models import (
 
 
 class SnapshotsTest(BaseTest):
+    # test_get_snapshot_indices requests this twice
+    persistent_mocks = {"/v3/snapshot/indices?ticker.any_of=SPX%2CAPx%2CAPy"}
+
     def test_list_universal_snapshots(self):
         expected = [
             UniversalSnapshot(

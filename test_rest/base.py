@@ -3,6 +3,7 @@ from massive import RESTClient
 import os
 import re
 import unittest
+from typing import Set
 import pook  # type: ignore
 
 # mocks are stored in file tree
@@ -32,6 +33,12 @@ unittest.util._MAX_LENGTH = 30000  # type: ignore
 
 
 class BaseTest(unittest.TestCase):
+    # Paths (as listed in `mocks`) whose mock answers any number of requests,
+    # for tests that repeat a request. Every other mock answers once: the
+    # pagination tests rely on that, because a first-page mock also matches
+    # the request for the next page.
+    persistent_mocks: Set[str] = set()
+
     @classmethod
     def setUpClass(cls):
         cls.maxDiff = None
@@ -40,4 +47,15 @@ class BaseTest(unittest.TestCase):
         for m in mocks:
             url = cls.c.BASE + m[0]
             # print("register", url)
-            pook.get(url, reply=200, response_body=m[1])
+            pook.get(
+                url,
+                reply=200,
+                response_body=m[1],
+                persist=m[0] in cls.persistent_mocks,
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        # stop intercepting urllib3 and drop the mocks, so they don't leak into
+        # later test classes
+        pook.off()
