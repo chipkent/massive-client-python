@@ -1,7 +1,18 @@
 import os
 from collections import Counter
 from enum import Enum
-from typing import Optional, Union, List, Set, Callable, Awaitable, Any, TypeVar, cast
+from typing import (
+    Optional,
+    Union,
+    List,
+    Set,
+    Callable,
+    Awaitable,
+    Any,
+    Tuple,
+    TypeVar,
+    cast,
+)
 import logging
 import json
 import functools
@@ -29,11 +40,14 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 
 def _changes_subscriptions(method: _F) -> _F:
     # runs a WebSocketClient method that changes scheduled_subs under the
-    # client's lock, so it is safe to call from any thread
+    # client's lock, so it is safe to call from any thread, then wakes the
+    # task that sends the change
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         with self._subs_lock:
-            return method(self, *args, **kwargs)
+            result = method(self, *args, **kwargs)
+        self._notify()
+        return result
 
     return cast(_F, wrapper)
 
@@ -96,6 +110,9 @@ class WebSocketClient:
         # guards scheduled_subs and schedule_resub, which subscribe() and
         # friends change on the caller's thread while connect() reads them
         self._subs_lock = threading.Lock()
+        # while a connection is open: its loop, and the event that wakes its
+        # sender task (see _start_sender)
+        self._wake: Optional[Tuple[asyncio.AbstractEventLoop, asyncio.Event]] = None
         self._server_errors: Counter = Counter()
         self._server_errors_since = 0.0
         self.ca_certs = ca_certs
@@ -153,39 +170,39 @@ class WebSocketClient:
                 # e.g. max_connections, which the server sends before closing
                 self._log_server_statuses(auth_msg_parsed)
                 self._flush_server_errors(force=True)
-                while True:
-                    if self.schedule_resub:
-                        # a change made from here on sets schedule_resub again
-                        with self._subs_lock:
-                            desired = set(self.scheduled_subs)
-                            self.schedule_resub = False
-                        logger.debug("reconciling: %s %s", self.subs, desired)
-                        new_subs = desired.difference(self.subs)
-                        await self._subscribe(new_subs)
-                        old_subs = self.subs.difference(desired)
-                        await self._unsubscribe(old_subs)
-                        self.subs = desired
+                # subscription changes go out from a task of their own,
+                # starting with the whole scheduled set
+                sender, wake = self._start_sender()
+                try:
+                    while True:
+                        if sender.done():
+                            self._check_sender(sender)
+                        if self.schedule_resub:
+                            # e.g. set by code that changed scheduled_subs itself
+                            wake.set()
 
-                    try:
-                        cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
-                            await asyncio.wait_for(s.recv(), timeout=1)
-                        )
-                    except asyncio.TimeoutError:
+                        try:
+                            cmsg: Union[List[WebSocketMessage], Union[str, bytes]] = (
+                                await asyncio.wait_for(s.recv(), timeout=1)
+                            )
+                        except asyncio.TimeoutError:
+                            self._flush_server_errors()
+                            continue
+
+                        if not self.raw:
+                            # we know cmsg is Data
+                            msgJson = self.json.loads(cmsg)  # type: ignore
+                            for m in msgJson:
+                                if m["ev"] == "status":
+                                    logger.debug("status: %s", m["message"])
+                            self._log_server_statuses(msgJson)
+                            cmsg = parse(msgJson, logger, self.market)
                         self._flush_server_errors()
-                        continue
 
-                    if not self.raw:
-                        # we know cmsg is Data
-                        msgJson = self.json.loads(cmsg)  # type: ignore
-                        for m in msgJson:
-                            if m["ev"] == "status":
-                                logger.debug("status: %s", m["message"])
-                        self._log_server_statuses(msgJson)
-                        cmsg = parse(msgJson, logger, self.market)
-                    self._flush_server_errors()
-
-                    if len(cmsg) > 0:
-                        await processor(cmsg)  # type: ignore
+                        if len(cmsg) > 0:
+                            await processor(cmsg)  # type: ignore
+                finally:
+                    await self._stop_sender(sender)
             except ConnectionClosedOK as e:
                 logger.debug("connection closed (OK): %s", e)
                 # the server sends a status (e.g. slow_consumer) before closing
@@ -281,6 +298,68 @@ class WebSocketClient:
         await self.websocket.send(
             self.json.dumps({"action": "unsubscribe", "params": subs})
         )
+
+    def _start_sender(self) -> Tuple["asyncio.Task[None]", asyncio.Event]:
+        """Start the task that sends subscription changes; see _notify."""
+        wake = asyncio.Event()
+        wake.set()  # first, the whole scheduled set
+        self._wake = (asyncio.get_running_loop(), wake)
+        return asyncio.ensure_future(self._send_changes(wake)), wake
+
+    async def _send_changes(self, wake: asyncio.Event):
+        # The only sender of subscription messages, so messages for two
+        # changes never interleave. Sending while connect() waits in recv() is
+        # safe: in websockets, only two concurrent recv() calls conflict.
+        while True:
+            await wake.wait()
+            wake.clear()
+            await self._reconcile()
+
+    def _check_sender(self, sender: "asyncio.Task[None]"):
+        # raise what ended the sender, unless the connection closed: then
+        # recv() raises too, once the messages already received are read
+        if sender.cancelled():
+            return
+        exc = sender.exception()
+        if exc is not None and not isinstance(
+            exc, (ConnectionClosedOK, ConnectionClosedError)
+        ):
+            raise exc
+
+    async def _stop_sender(self, sender: "asyncio.Task[None]"):
+        self._wake = None
+        sender.cancel()
+        await asyncio.wait({sender})  # does not raise
+        self._check_sender(sender)
+
+    def _notify(self):
+        """Wake the sender, if a connection is open. Safe from any thread."""
+        waker = self._wake
+        if waker is None:
+            return
+        loop, wake = waker
+        try:
+            loop.call_soon_threadsafe(wake.set)
+        except RuntimeError:
+            pass  # the loop is closed
+
+    async def _reconcile(self):
+        """Send the changes that move the server from subs to scheduled_subs."""
+        with self._subs_lock:
+            if not self.schedule_resub:
+                return
+            desired = set(self.scheduled_subs)
+            self.schedule_resub = False
+        logger.debug("reconciling: %s %s", self.subs, desired)
+        try:
+            await self._subscribe(desired.difference(self.subs))
+            await self._unsubscribe(self.subs.difference(desired))
+        except BaseException:
+            # e.g. the connection closed: send it all on the next connection
+            with self._subs_lock:
+                self.schedule_resub = True
+            raise
+        self.subs = desired
 
     @staticmethod
     def _parse_subscription(s: str):
