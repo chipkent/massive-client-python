@@ -1,12 +1,15 @@
 import asyncio
+import json
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Set
+from typing import Any, Dict, List, Set
+from unittest import mock
 
 from fake_server import FakeServer
 
 from massive import WebSocketClient
+from massive import websocket as websocket_module
 
 
 async def ignore(msgs):
@@ -77,6 +80,223 @@ class ThreadSafetyTest(SubscriptionsTest):
         self.assertEqual(c.scheduled_subs, desired)
         await self.server.wait_for_subscriptions(desired, timeout=10)
         self.assertEqual(len(self.server.open_connections), 1)
+
+
+class CompatibilityTest(SubscriptionsTest):
+    async def test_changing_the_attributes_directly(self) -> None:
+        # as before, changing scheduled_subs and setting schedule_resub works
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        c.scheduled_subs.add("T.B")
+        c.schedule_resub = True
+        await self.server.wait_for_subscriptions({"T.A", "T.B"})
+        self.assertIsInstance(c.scheduled_subs, set)
+        self.assertIsInstance(c.subs, set)
+
+    async def test_subscribe_after_changing_the_attributes_directly(self) -> None:
+        c = self.client(subscriptions=["T.A"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.A"})
+        c.scheduled_subs.add("T.B")
+        c.schedule_resub = True
+        c.subscribe("T.C")  # schedule_resub is already set
+        await self.server.wait_for_subscriptions({"T.A", "T.B", "T.C"})
+        c.subscribe("T.D")
+        await self.server.wait_for_subscriptions({"T.A", "T.B", "T.C", "T.D"})
+
+
+def recv_timeout(seconds: float):
+    """
+    Patch the client's receive loop to wait up to ``seconds`` for a message,
+    instead of one second, by giving its module an ``asyncio`` whose
+    ``wait_for()`` uses that timeout.
+    """
+
+    class Asyncio:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(asyncio, name)
+
+        @staticmethod
+        def wait_for(aw: Any, timeout: float) -> Any:
+            return asyncio.wait_for(aw, seconds)
+
+    return mock.patch.object(websocket_module, "asyncio", Asyncio())
+
+
+class WakeUpTest(SubscriptionsTest):
+    """
+    With a 30 second receive timeout, the receive loop sees a change only
+    after the next message: changes reach the server promptly only if they
+    are sent without waiting for it.
+    """
+
+    latency = 0.5
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        patcher = recv_timeout(30.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def test_subscribe_is_sent_promptly(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        c.subscribe("T.MSFT")
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.MSFT"}, self.latency)
+
+    async def test_unsubscribe_from_another_thread_is_sent_promptly(self) -> None:
+        c = self.client(subscriptions=["T.AAPL", "T.MSFT"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL", "T.MSFT"})
+        await asyncio.to_thread(c.unsubscribe, "T.AAPL")
+        await self.server.wait_for_subscriptions({"T.MSFT"}, self.latency)
+
+    async def test_unsubscribe_all_is_sent_promptly(self) -> None:
+        c = self.client(subscriptions=["T.AAPL"])
+        await self.start(c)
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        await asyncio.to_thread(c.unsubscribe_all)
+        await self.server.wait_for_subscriptions(set(), self.latency)
+
+    async def test_changes_between_connect_calls(self) -> None:
+        c = self.client()
+        c.subscribe("T.AAPL")  # before connect() runs
+
+        async def processor(msgs):
+            await c.close()
+
+        # connect() in a thread with its own event loop, closed afterwards
+        connected = asyncio.create_task(
+            asyncio.to_thread(asyncio.run, c.connect(processor))
+        )
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        await self.server.send_data(
+            [{"ev": "T", "sym": "AAPL", "x": 1, "p": 1, "s": 1, "t": 1}]
+        )
+        await asyncio.wait_for(connected, 5)
+
+        # connect()'s loop is closed: scheduling still works and does not raise
+        c.subscribe("T.MSFT")
+        c.unsubscribe("T.AAPL")
+        self.assertEqual(c.scheduled_subs, {"T.MSFT"})
+
+    async def test_frequent_receive_timeouts(self) -> None:
+        errors: List[Dict[str, Any]] = []
+        loop = asyncio.get_running_loop()
+        handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda loop, context: errors.append(context))
+        self.addCleanup(loop.set_exception_handler, handler)
+
+        c = self.client(subscriptions=["T.AAPL"])
+        with recv_timeout(0.0005):
+            await self.start(c)
+            await self.server.wait_for_subscriptions({"T.AAPL"})
+
+            def hammer():
+                for _ in range(20_000):
+                    c.subscribe("T.X")
+                    c.unsubscribe("T.X")
+
+            await asyncio.to_thread(hammer)
+            await self.server.wait_for_subscriptions({"T.AAPL"})
+        self.assertEqual(errors, [])
+
+    async def test_changes_while_receiving_data(self) -> None:
+        # subscription frames go out while the receive loop is in recv() and
+        # the server is streaming data to it
+        errors: List[Dict[str, Any]] = []
+        loop = asyncio.get_running_loop()
+        handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda loop, context: errors.append(context))
+        self.addCleanup(loop.set_exception_handler, handler)
+
+        n = 300
+        received: List[str] = []
+        all_received = asyncio.Event()
+
+        async def processor(msgs):
+            received.extend(m.symbol for m in msgs)
+            if len(received) >= n:
+                all_received.set()
+
+        c = self.client(subscriptions=["T.AAPL"])
+        task = asyncio.create_task(c.connect(processor))
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        subscribed = {"T.AAPL"}
+        for i in range(n):
+            await self.server.send_data(
+                [{"ev": "T", "sym": f"S{i}", "x": 1, "p": 1, "s": 1, "t": 1}]
+            )
+            if i % 30 == 29:
+                # a burst of data is on its way to the client: change the
+                # subscriptions, alternately from this thread and another
+                topic = f"Q.S{i}"
+                if i % 60 == 29:
+                    c.subscribe(topic)
+                else:
+                    await asyncio.to_thread(c.subscribe, topic)
+                subscribed.add(topic)
+                await self.server.wait_for_subscriptions(subscribed, self.latency)
+        await asyncio.wait_for(all_received.wait(), 5)
+
+        self.assertEqual(received, [f"S{i}" for i in range(n)])
+        subscribes = [m for m in self.server.inbox if m.get("action") == "subscribe"]
+        self.assertEqual(len(subscribes), 1 + n // 30)
+        self.assertEqual(errors, [])
+        await c.close()
+        await asyncio.wait_for(task, 5)
+
+    async def test_cancel_while_connected(self) -> None:
+        received = asyncio.Event()
+
+        async def processor(msgs):
+            received.set()
+
+        c = self.client(subscriptions=["T.AAPL"])
+        task = asyncio.create_task(c.connect(processor))
+        await self.server.wait_for_subscriptions({"T.AAPL"})
+        ws = c.websocket
+        assert ws is not None
+        self.addAsyncCleanup(ws.close)
+        # Cancel while the client waits for a message, not while one arrives:
+        # on Python 3.10 and 3.11, asyncio.wait_for() ignores a cancellation
+        # that coincides with the completion of what it waits for
+        # (https://bugs.python.org/issue42130). The acknowledgements are read
+        # before this message, so none is in flight once it is processed.
+        await self.server.send_data(
+            [{"ev": "T", "sym": "AAPL", "x": 1, "p": 1, "s": 1, "t": 1}]
+        )
+        await asyncio.wait_for(received.wait(), 5)
+
+        task.cancel()
+        done, _ = await asyncio.wait({task}, timeout=2)
+        self.assertIn(task, done, "connect() did not finish after cancel()")
+        self.assertTrue(task.cancelled())
+        c.subscribe("T.MSFT")  # does not raise after connect() ended
+
+
+class SenderErrorTest(SubscriptionsTest):
+    async def test_send_error_is_raised_by_connect(self) -> None:
+        class Json:
+            loads = staticmethod(json.loads)
+
+            @staticmethod
+            def dumps(obj: Any) -> str:
+                if obj.get("params") == "T.BAD":
+                    raise TypeError("cannot encode")
+                return json.dumps(obj)
+
+        c = self.client(subscriptions=["T.A"], custom_json=Json)
+        task = asyncio.create_task(c.connect(ignore))
+        await self.server.wait_for_subscriptions({"T.A"})
+        ws = c.websocket
+        assert ws is not None
+        self.addAsyncCleanup(ws.close)
+        c.subscribe("T.BAD")
+        with self.assertRaises(TypeError):
+            await asyncio.wait_for(task, 5)
 
 
 if __name__ == "__main__":
