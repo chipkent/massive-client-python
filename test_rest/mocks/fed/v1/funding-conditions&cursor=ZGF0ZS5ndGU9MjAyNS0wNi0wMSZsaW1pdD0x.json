@@ -1,0 +1,31 @@
+{
+  "status": "OK",
+  "request_id": "b2170df985474b6d21a6eeccfb6bee67",
+  "count": 1,
+  "results": [
+    {
+      "date": "2025-06-02",
+      "effective_fed_funds_rate": 4.33,
+      "effective_fed_funds_volume": 98,
+      "fed_funds_target_lower": 4.25,
+      "fed_funds_target_upper": 4.5,
+      "fed_overnight_repo_treasury_amount": 0,
+      "fed_overnight_reverse_repo_treasury_amount": 214.5,
+      "financial_commercial_paper_90d_rate": 4.35,
+      "interest_on_reserve_balances": 4.4,
+      "nonfinancial_commercial_paper_90d_rate": 4.34,
+      "obfr_25th_percentile": 4.3,
+      "obfr_75th_percentile": 4.33,
+      "obfr_volume": 305,
+      "overnight_bank_funding_rate": 4.32,
+      "secured_overnight_financing_rate": 4.31,
+      "sofr_25th_percentile": 4.28,
+      "sofr_75th_percentile": 4.32,
+      "sofr_volume": 2214,
+      "tgcr_25th_percentile": 4.27,
+      "tgcr_75th_percentile": 4.31,
+      "tri_party_general_collateral_rate": 4.3,
+      "tri_party_general_collateral_volume": 1876
+    }
+  ]
+}
