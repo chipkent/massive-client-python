@@ -92,7 +92,7 @@ class TickersClient(BaseClient):
         type: Optional[str] = None,
         market: Optional[str] = None,
         exchange: Optional[str] = None,
-        cusip: Optional[int] = None,
+        cusip: Optional[Union[int, str]] = None,
         cik: Optional[int] = None,
         date: Optional[str] = None,
         active: Optional[bool] = None,
@@ -115,7 +115,7 @@ class TickersClient(BaseClient):
         :param type: Specify the type of the tickers. Find the types that we support via our Ticker Types API. Defaults to empty string which queries all types.
         :param market: Filter by market type. By default all markets are included.
         :param exchange: Specify the assets primary exchange Market Identifier Code (MIC) according to ISO 10383. Defaults to empty string which queries all exchanges.
-        :param cusip: Specify the CUSIP code of the asset you want to search for. Find more information about CUSIP codes at their website. Defaults to empty string which queries all CUSIPs.
+        :param cusip: Specify the CUSIP code of the asset you want to search for. The API treats a CUSIP as a string, so pass a string such as "037833100": an int drops leading zeros and cannot hold the letters some CUSIPs contain. An int is still accepted for backward compatibility. Find more information about CUSIP codes at their website. Defaults to empty string which queries all CUSIPs.
         :param cik: Specify the CIK of the asset you want to search for. Find more information about CIK codes at their website. Defaults to empty string which queries all CIKs.
         :param date: Specify a point in time to retrieve tickers available on that date. Defaults to the most recent available date.
         :param search: Search for terms within the ticker and/or company name.
@@ -606,7 +606,7 @@ class ContractsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[ShortInterest], HTTPResponse]:
+    ) -> Union[Iterator[ShortInterest], HTTPResponse]:
         """
         Retrieve short interest data for stocks.
 
@@ -632,7 +632,7 @@ class ContractsClient(BaseClient):
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return List[ShortInterest].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of ShortInterest objects or HTTPResponse if raw=True.
+        :return: An iterator of ShortInterest objects or HTTPResponse if raw=True.
         """
         url = "/stocks/v1/short-interest"
 
@@ -669,7 +669,7 @@ class ContractsClient(BaseClient):
         params: Optional[Dict[str, Any]] = None,
         raw: bool = False,
         options: Optional[RequestOptionBuilder] = None,
-    ) -> Union[List[ShortVolume], HTTPResponse]:
+    ) -> Union[Iterator[ShortVolume], HTTPResponse]:
         """
         Retrieve short volume data for stocks.
 
@@ -695,7 +695,7 @@ class ContractsClient(BaseClient):
         :param params: Additional query parameters.
         :param raw: Return raw HTTPResponse object if True, else return List[ShortVolume].
         :param options: RequestOptionBuilder for additional headers or params.
-        :return: A list of ShortVolume objects or HTTPResponse if raw=True.
+        :return: An iterator of ShortVolume objects or HTTPResponse if raw=True.
         """
         url = "/stocks/v1/short-volume"
 
