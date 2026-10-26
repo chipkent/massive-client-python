@@ -6,7 +6,7 @@ from massive.rest.models.indicators import (
     MACDIndicatorResults,
 )
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union
+from typing import Optional, Any, Dict, List, Union, Literal, overload
 from .models import Order
 from urllib3 import HTTPResponse
 from datetime import datetime, date
@@ -15,6 +15,67 @@ from .models.request import RequestOptionBuilder
 
 
 class IndicatorsClient(BaseClient):
+    @overload
+    def get_sma(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> SMAIndicatorResults: ...
+    @overload
+    def get_sma(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_sma(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[SMAIndicatorResults, HTTPResponse]: ...
     def get_sma(
         self,
         ticker: str,
@@ -70,6 +131,67 @@ class IndicatorsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_ema(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> EMAIndicatorResults: ...
+    @overload
+    def get_ema(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_ema(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[EMAIndicatorResults, HTTPResponse]: ...
     def get_ema(
         self,
         ticker: str,
@@ -125,6 +247,67 @@ class IndicatorsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_rsi(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> RSIIndicatorResults: ...
+    @overload
+    def get_rsi(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_rsi(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[RSIIndicatorResults, HTTPResponse]: ...
     def get_rsi(
         self,
         ticker: str,
@@ -180,6 +363,73 @@ class IndicatorsClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def get_macd(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        short_window: Optional[int] = None,
+        long_window: Optional[int] = None,
+        signal_window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> MACDIndicatorResults: ...
+    @overload
+    def get_macd(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        short_window: Optional[int] = None,
+        long_window: Optional[int] = None,
+        signal_window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> HTTPResponse: ...
+    @overload
+    def get_macd(
+        self,
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        timespan: Optional[str] = None,
+        short_window: Optional[int] = None,
+        long_window: Optional[int] = None,
+        signal_window: Optional[int] = None,
+        adjusted: Optional[bool] = None,
+        expand_underlying: Optional[bool] = None,
+        order: Optional[Union[str, Order]] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+        series_type: Optional[Union[str, SeriesType]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[MACDIndicatorResults, HTTPResponse]: ...
     def get_macd(
         self,
         ticker: str,

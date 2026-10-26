@@ -1,5 +1,5 @@
 from .base import BaseClient
-from typing import Optional, Any, Dict, List, Union, Iterator
+from typing import Optional, Any, Dict, List, Union, Iterator, Literal, overload
 from .models import (
     StockFinancial,
     IPOListing,
@@ -13,6 +13,88 @@ from .models.request import RequestOptionBuilder
 
 
 class VXClient(BaseClient):
+    @overload
+    def list_stock_financials(
+        self,
+        ticker: Optional[str] = None,
+        cik: Optional[str] = None,
+        company_name: Optional[str] = None,
+        company_name_search: Optional[str] = None,
+        sic: Optional[str] = None,
+        filing_date: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        timeframe: Optional[Union[str, Timeframe]] = None,
+        include_sources: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[StockFinancial]: ...
+    @overload
+    def list_stock_financials(
+        self,
+        ticker: Optional[str] = None,
+        cik: Optional[str] = None,
+        company_name: Optional[str] = None,
+        company_name_search: Optional[str] = None,
+        sic: Optional[str] = None,
+        filing_date: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        timeframe: Optional[Union[str, Timeframe]] = None,
+        include_sources: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_stock_financials(
+        self,
+        ticker: Optional[str] = None,
+        cik: Optional[str] = None,
+        company_name: Optional[str] = None,
+        company_name_search: Optional[str] = None,
+        sic: Optional[str] = None,
+        filing_date: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        filing_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_lte: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gt: Optional[Union[str, int, datetime, date]] = None,
+        period_of_report_date_gte: Optional[Union[str, int, datetime, date]] = None,
+        timeframe: Optional[Union[str, Timeframe]] = None,
+        include_sources: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[StockFinancial], HTTPResponse]: ...
     def list_stock_financials(
         self,
         ticker: Optional[str] = None,
@@ -76,6 +158,64 @@ class VXClient(BaseClient):
             options=options,
         )
 
+    @overload
+    def list_ipos(
+        self,
+        ticker: Optional[str] = None,
+        us_code: Optional[str] = None,
+        isin: Optional[str] = None,
+        listing_date: Optional[str] = None,
+        listing_date_lt: Optional[str] = None,
+        listing_date_lte: Optional[str] = None,
+        listing_date_gt: Optional[str] = None,
+        listing_date_gte: Optional[str] = None,
+        ipo_status: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: Literal[False] = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Iterator[IPOListing]: ...
+    @overload
+    def list_ipos(
+        self,
+        ticker: Optional[str] = None,
+        us_code: Optional[str] = None,
+        isin: Optional[str] = None,
+        listing_date: Optional[str] = None,
+        listing_date_lt: Optional[str] = None,
+        listing_date_lte: Optional[str] = None,
+        listing_date_gt: Optional[str] = None,
+        listing_date_gte: Optional[str] = None,
+        ipo_status: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        raw: Literal[True],
+        options: Optional[RequestOptionBuilder] = None
+    ) -> HTTPResponse: ...
+    @overload
+    def list_ipos(
+        self,
+        ticker: Optional[str] = None,
+        us_code: Optional[str] = None,
+        isin: Optional[str] = None,
+        listing_date: Optional[str] = None,
+        listing_date_lt: Optional[str] = None,
+        listing_date_lte: Optional[str] = None,
+        listing_date_gt: Optional[str] = None,
+        listing_date_gte: Optional[str] = None,
+        ipo_status: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[Union[str, Sort]] = None,
+        order: Optional[Union[str, Order]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        raw: bool = False,
+        options: Optional[RequestOptionBuilder] = None,
+    ) -> Union[Iterator[IPOListing], HTTPResponse]: ...
     def list_ipos(
         self,
         ticker: Optional[str] = None,
