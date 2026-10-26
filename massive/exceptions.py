@@ -14,10 +14,11 @@ class AuthError(Exception):
 
 class BadResponse(Exception):
     """
-    Non-200 response from API
+    Non-200 response from API, or a 200 response whose body is not valid JSON
 
-    The message is the response body. ``status`` is the HTTP status code, or
-    None if not given.
+    The message is the response body; for invalid JSON it is "Invalid JSON in
+    response: " followed by the first 200 bytes of the body. ``status`` is the
+    HTTP status code, or None if not given.
     """
 
     def __init__(self, *args: object, status: Optional[int] = None):
