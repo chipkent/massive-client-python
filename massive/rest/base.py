@@ -196,7 +196,8 @@ class BaseClient:
         # https://docs.python.org/3.8/library/inspect.html#inspect.Signature
         for argname, v in inspect.signature(fn).parameters.items():
             # https://docs.python.org/3.8/library/inspect.html#inspect.Parameter
-            if argname in ["params", "raw"]:
+            # these configure the request itself and are never query params
+            if argname in ["params", "raw", "options"]:
                 continue
             if v.default != v.empty:
                 # timestamp_lt -> timestamp.lt
