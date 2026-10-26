@@ -111,7 +111,13 @@ class BaseClient:
             self.json = json
 
     def _decode(self, resp):
-        return self.json.loads(resp.data.decode("utf-8"))
+        try:
+            return self.json.loads(resp.data.decode("utf-8"))
+        except ValueError as e:
+            body = resp.data[:200].decode("utf-8", "replace")
+            raise BadResponse(
+                f"Invalid JSON in response: {body}", status=resp.status
+            ) from e
 
     def _get(
         self,
@@ -157,11 +163,7 @@ class BaseClient:
         if raw:
             return resp
 
-        try:
-            obj = self._decode(resp)
-        except ValueError as e:
-            logger.error("Error decoding json response: %s", e)
-            return []
+        obj = self._decode(resp)
 
         if result_key:
             if result_key not in obj:
@@ -246,11 +248,7 @@ class BaseClient:
                 options=options,
             )
 
-            try:
-                decoded = self._decode(resp)
-            except ValueError as e:
-                logger.error("Error decoding json response: %s", e)
-                return []
+            decoded = self._decode(resp)
 
             if result_key not in decoded:
                 return []
